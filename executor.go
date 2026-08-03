@@ -3,6 +3,7 @@ package yourbatis
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log"
@@ -59,6 +60,11 @@ type debugArgument struct {
 	Sensitive bool
 }
 
+type debugDatabaseStringer interface {
+	fmt.Stringer
+	driver.Valuer
+}
+
 func (argument debugArgument) String() string {
 	if argument.Sensitive {
 		if argument.Name == "" {
@@ -67,9 +73,19 @@ func (argument debugArgument) String() string {
 		return argument.Name + "=<redacted>"
 	}
 	if argument.Name == "" {
-		return fmt.Sprintf("%#v", argument.Value)
+		return formatDebugValue(argument.Value)
 	}
-	return fmt.Sprintf("%s=%#v", argument.Name, argument.Value)
+	return argument.Name + "=" + formatDebugValue(argument.Value)
+}
+
+func formatDebugValue(value any) string {
+	if current, ok := value.(debugDatabaseStringer); ok {
+		formatted := fmt.Sprintf("%q", current)
+		if formatted != "<nil>" {
+			return formatted
+		}
+	}
+	return fmt.Sprintf("%#v", value)
 }
 
 type environmentDebugLogger struct{}

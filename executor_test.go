@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"log"
 	"strings"
@@ -11,6 +12,26 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+type debugStringerStruct struct {
+	Value string
+}
+
+func (value debugStringerStruct) String() string {
+	return "stringer:" + value.Value
+}
+
+type debugUUID struct {
+	text string
+}
+
+func (value debugUUID) String() string {
+	return value.text
+}
+
+func (value debugUUID) Value() (driver.Value, error) {
+	return value.text, nil
+}
 
 func TestEnvironmentDebugLoggerPrintsBoundSQLAndRedactedArguments(t *testing.T) {
 	t.Setenv(DebugEnvironmentVariable, "on")
@@ -74,6 +95,56 @@ func TestEnvironmentDebugLoggerStaysDisabledForFalseValue(t *testing.T) {
 	db := NewDB(nil, DialectSQLite)
 	if db.logger != nil {
 		t.Fatalf("NewDB logger = %T, want nil when %s=false", db.logger, DebugEnvironmentVariable)
+	}
+}
+
+func TestDebugArgumentFormatsUUIDAsCanonicalString(t *testing.T) {
+	id := debugUUID{text: "550e8400-e29b-41d4-a716-446655440000"}
+	for _, testCase := range []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{
+			name:  "value",
+			value: id,
+			want:  `id="550e8400-e29b-41d4-a716-446655440000"`,
+		},
+		{
+			name:  "pointer",
+			value: &id,
+			want:  `id="550e8400-e29b-41d4-a716-446655440000"`,
+		},
+		{
+			name:  "nil pointer",
+			value: (*debugUUID)(nil),
+			want:  "id=(*yourbatis.debugUUID)(nil)",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := (debugArgument{Name: "id", Value: testCase.value}).String()
+			if got != testCase.want {
+				t.Fatalf("debug UUID = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestDebugArgumentFormatsNonUUIDDatabaseStringer(t *testing.T) {
+	value := debugUUID{text: "not-a-uuid"}
+	got := (debugArgument{Name: "id", Value: value}).String()
+	want := `id="not-a-uuid"`
+	if got != want {
+		t.Fatalf("debug database stringer = %q, want %q", got, want)
+	}
+}
+
+func TestDebugArgumentKeepsNonUUIDStringerAsGoSyntax(t *testing.T) {
+	value := debugStringerStruct{Value: "visible"}
+	got := (debugArgument{Name: "value", Value: value}).String()
+	want := `value=yourbatis.debugStringerStruct{Value:"visible"}`
+	if got != want {
+		t.Fatalf("debug struct = %q, want %q", got, want)
 	}
 }
 

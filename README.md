@@ -519,6 +519,9 @@ YOURBATIS_DEBUG=1 go run ./cmd/server
 （忽略大小写）也会开启该功能。SQL 仍保留占位符，不会把参数插值进 SQL；
 标记为 `sensitive=true` 的参数值显示为 `<redacted>`。显式配置的
 `WithLogger` 会与环境调试日志同时生效，事务也会继承相同配置。
+同时实现 `fmt.Stringer` 和 `driver.Valuer` 的数据库参数会使用其 `String()`
+结果打印，UUID 因而显示为带引号的标准字符串；其他 struct 参数继续使用
+Go 的 `%#v` 形式。该行为不依赖具体 UUID 包或运行时反射。
 
 ## 生成器命令
 
