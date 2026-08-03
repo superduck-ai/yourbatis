@@ -1,7 +1,7 @@
 package parsing
 
 import (
-	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -247,7 +247,7 @@ func (xnode *XNode) GetStringAttributeWithSupplier(name string, defSupplier func
 		return value
 	}
 	if defSupplier == nil {
-		panic(newXNodeGetStringAttributeSupplierNullPointerException())
+		panic(fmt.Errorf("parsing: nil default supplier for missing attribute %q", name))
 	}
 	return defSupplier()
 }
@@ -510,9 +510,16 @@ func (xnode *XNode) buildToString(builder *strings.Builder, indentLevel int) {
 			NewXNode(xnode.xpathParser, node, xnode.variables).buildToString(builder, indentLevel+1)
 			continue
 		}
+		if node.GetNodeType() == ENTITY_REFERENCE_NODE {
+			xnode.indent(builder, indentLevel+1)
+			builder.WriteString("&")
+			builder.WriteString(node.GetNodeName())
+			builder.WriteString(";\n")
+			continue
+		}
 		text, ok := xnode.getBodyData(node)
 		if !ok {
-			panic(newXNodeGetBodyDataTrimNullPointerException())
+			continue
 		}
 		text = TrimJavaWhitespace(text)
 		if text != "" {
@@ -566,12 +573,4 @@ func (xnode *XNode) getBodyData(child *Node) (string, bool) {
 		return PropertyParser.Parse(child.GetNodeValue(), xnode.variables), true
 	}
 	return "", false
-}
-
-func newXNodeGetBodyDataTrimNullPointerException() error {
-	return errors.New(`java.lang.NullPointerException: Cannot invoke "String.trim()" because the return value of "org.apache.ibatis.parsing.XNode.getBodyData(org.w3c.dom.Node)" is null`)
-}
-
-func newXNodeGetStringAttributeSupplierNullPointerException() error {
-	return errors.New(`java.lang.NullPointerException: Cannot invoke "java.util.function.Supplier.get()" because "defSupplier" is null`)
 }

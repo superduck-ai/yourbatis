@@ -228,28 +228,29 @@ func TestXPathParserShouldTreatNumericPredicateExpressionsAsPositionTestsLikeJDK
 	}
 }
 
-func TestXPathParserShouldRejectBareGroupedUnionBooleanComparisonsOnLeftLikeJDKXPath(t *testing.T) {
+func TestXPathParserShouldRejectBareGroupedUnionBooleanComparisonsOnLeft(t *testing.T) {
 	parser := mustNewXPathParser(t,
 		`<root><a>A</a><b>B</b></root>`,
 		XPathParserConfig{Resource: "xpath_grouped_union_boolean_comparison.xml"},
 	)
 
-	assertPanicContains(t, "cannot be cast to class com.sun.org.apache.xpath.internal.objects.XNodeSet", func() {
+	const expectedError = "parsing: cannot compare a bare grouped XPath union with a boolean value"
+	assertPanicContains(t, expectedError, func() {
 		_ = parser.EvalBoolean("(/root/a | /root/b) = true()")
 	})
-	assertPanicContains(t, "cannot be cast to class com.sun.org.apache.xpath.internal.objects.XNodeSet", func() {
+	assertPanicContains(t, expectedError, func() {
 		_ = parser.EvalBoolean("(/root/a | /root/b) != false()")
 	})
-	assertPanicContains(t, "cannot be cast to class com.sun.org.apache.xpath.internal.objects.XNodeSet", func() {
+	assertPanicContains(t, expectedError, func() {
 		_ = parser.EvalBoolean("(/root/a | /root/b) < true()")
 	})
-	assertPanicContains(t, "cannot be cast to class com.sun.org.apache.xpath.internal.objects.XNodeSet", func() {
+	assertPanicContains(t, expectedError, func() {
 		_ = parser.EvalBoolean("(/root/a | /root/b) <= true()")
 	})
-	assertPanicContains(t, "cannot be cast to class com.sun.org.apache.xpath.internal.objects.XNodeSet", func() {
+	assertPanicContains(t, expectedError, func() {
 		_ = parser.EvalBoolean("(/root/a | /root/b) > false()")
 	})
-	assertPanicContains(t, "cannot be cast to class com.sun.org.apache.xpath.internal.objects.XNodeSet", func() {
+	assertPanicContains(t, expectedError, func() {
 		_ = parser.EvalBoolean("(/root/a | /root/b) >= false()")
 	})
 

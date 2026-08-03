@@ -342,7 +342,7 @@ func TestXNodeShouldPreserveRelativeDocumentOrderForGroupedUnionsFromAttributeCo
 	}
 }
 
-func TestXNodeStringShouldPanicOnEntityReferenceChildrenLikeMyBatisDOM(t *testing.T) {
+func TestXNodeStringShouldRenderEntityReferenceChildren(t *testing.T) {
 	parser := mustNewXPathParser(t, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper [
   <!ENTITY custom "HELLO">
@@ -356,13 +356,10 @@ func TestXNodeStringShouldPanicOnEntityReferenceChildrenLikeMyBatisDOM(t *testin
 		t.Fatal("select node should not be nil")
 	}
 
-	assertPanicContains(
-		t,
-		`java.lang.NullPointerException: Cannot invoke "String.trim()" because the return value of "org.apache.ibatis.parsing.XNode.getBodyData(org.w3c.dom.Node)" is null`,
-		func() {
-			_ = selectNode.String()
-		},
-	)
+	const want = "<select id=\"selectOne\">\n  pre\n  &custom;\n  post\n</select>\n"
+	if actual := selectNode.String(); actual != want {
+		t.Fatalf("String() = %q, want %q", actual, want)
+	}
 }
 
 func TestXNodeShouldGetChildrenAsPropertiesAndCloneAttributes(t *testing.T) {
@@ -461,7 +458,7 @@ func TestXNodeShouldUseStringAttributeSupplierLazilyLikeMyBatis(t *testing.T) {
 	}
 }
 
-func TestXNodeGetStringAttributeWithSupplierShouldPanicWhenSupplierNilLikeMyBatis(t *testing.T) {
+func TestXNodeGetStringAttributeWithSupplierShouldPanicWhenSupplierNil(t *testing.T) {
 	parser := mustNewXPathParser(t, `
 		<mapper>
 		  <resultMap id="blogResult" type="Blog">
@@ -485,7 +482,7 @@ func TestXNodeGetStringAttributeWithSupplierShouldPanicWhenSupplierNilLikeMyBati
 
 	assertPanicContains(
 		t,
-		`java.lang.NullPointerException: Cannot invoke "java.util.function.Supplier.get()" because "defSupplier" is null`,
+		`parsing: nil default supplier for missing attribute "id"`,
 		func() {
 			_ = associationNode.GetStringAttributeWithSupplier("id", nil)
 		},

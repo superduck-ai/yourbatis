@@ -981,9 +981,9 @@ func xpathPredicateValueMatchesContextPosition(value xpathValue, position int) b
 	return value.booleanValueForXPath()
 }
 
-func newXPathGroupedUnionBooleanComparisonException() error {
+func newXPathGroupedUnionBooleanComparisonError() error {
 	return NewParsingException(
-		"Error evaluating XPath. Cause: class com.sun.org.apache.xpath.internal.objects.XBooleanStatic cannot be cast to class com.sun.org.apache.xpath.internal.objects.XNodeSet (com.sun.org.apache.xpath.internal.objects.XBooleanStatic and com.sun.org.apache.xpath.internal.objects.XNodeSet are in module java.xml of loader 'bootstrap')",
+		"parsing: cannot compare a bare grouped XPath union with a boolean value",
 		nil,
 	)
 }
@@ -1794,7 +1794,7 @@ func (parser *XPathParser) evalXPathComparisonInContext(
 	rightValue := parser.evalXPathValueInContext(context, rightExpression)
 	if parser.isBareGroupedUnionExpression(leftExpression) {
 		if rightValue.kind == xpathValueBoolean {
-			panic(newXPathGroupedUnionBooleanComparisonException())
+			panic(newXPathGroupedUnionBooleanComparisonError())
 		}
 		if operator == xpathComparisonEqual && rightValue.kind == xpathValueNodeSet {
 			return rightValue.booleanValueForXPath()
