@@ -125,6 +125,13 @@ go generate ./...
 默认输出文件名是 Mapper 名称的 snake_case 加 `.sqlmap.gen.go`，例如
 `UserMapper` 生成 `user_mapper.sqlmap.gen.go`。生成文件不应手工修改。
 
+## IDE 导航
+
+仓库的 [`jetbrains-plugin`](jetbrains-plugin/README.md) 提供 GoLand/IntelliJ IDEA 插件。
+安装后，可以通过独立的 gutter 图标在 Go Mapper interface/method 与对应的
+`<mapper>` 或 `select`/`insert`/`update`/`delete` XML statement 之间双向跳转。
+插件不会修改 GoLand 原有的 **Go to Implementation** 行为。
+
 ## 创建运行时
 
 把已有的 `*sql.DB` 与明确的生产方言交给 `yourbatis.NewDB`：

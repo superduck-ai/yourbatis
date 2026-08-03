@@ -1,1 +1,4 @@
 .idea
+jetbrains-plugin/.gradle/
+jetbrains-plugin/build/
+jetbrains-plugin/.intellijPlatform/

@@ -1,0 +1,24 @@
+<idea-plugin>
+    <id>com.superduck.yourbatis.mapper-navigation</id>
+    <name>Yourbatis Mapper Navigation</name>
+    <vendor url="https://github.com/superduck-ai/yourbatis">SuperDuck AI</vendor>
+
+    <description><![CDATA[
+    Adds independent gutter buttons for two-way navigation between Yourbatis Go
+    mapper interfaces and their matching mapper XML elements.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.xml</depends>
+    <depends>org.jetbrains.plugins.go</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileBasedIndex implementation="com.superduck.yourbatis.idea.index.YourbatisMapperStatementIndex"/>
+        <codeInsight.lineMarkerProvider
+                language="go"
+                implementationClass="com.superduck.yourbatis.idea.navigation.YourbatisXmlLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="XML"
+                implementationClass="com.superduck.yourbatis.idea.navigation.YourbatisGoLineMarkerProvider"/>
+    </extensions>
+</idea-plugin>
