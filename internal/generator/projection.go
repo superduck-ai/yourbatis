@@ -38,7 +38,41 @@ func resultColumns(statement *ir.Statement) ([]string, string, error) {
 	return columns, "SELECT", err
 }
 
+func resultProjectionItems(statement *ir.Statement) ([]string, string, error) {
+	if statement.ResultMode == ir.ResultReturning {
+		return projectionItems(statement, "RETURNING", returningProjectionRange, false)
+	}
+	return projectionItems(statement, "SELECT", selectProjectionRange, true)
+}
+
 func projectionColumns(
+	statement *ir.Statement,
+	projectionName string,
+	projectionRange func(string) (int, int, error),
+	stripModifier bool,
+) ([]string, string, error) {
+	items, projectionName, err := projectionItems(
+		statement,
+		projectionName,
+		projectionRange,
+		stripModifier,
+	)
+	if err != nil {
+		return nil, projectionName, err
+	}
+
+	columns := make([]string, 0, len(items))
+	for _, item := range items {
+		column, err := projectionColumn(item, projectionName)
+		if err != nil {
+			return nil, projectionName, sourceError(statement.Source, "%v", err)
+		}
+		columns = append(columns, column)
+	}
+	return columns, projectionName, nil
+}
+
+func projectionItems(
 	statement *ir.Statement,
 	projectionName string,
 	projectionRange func(string) (int, int, error),
@@ -74,15 +108,7 @@ func projectionColumns(
 		}
 	}
 
-	columns := make([]string, 0, len(items))
-	for _, item := range items {
-		column, err := projectionColumn(item, projectionName)
-		if err != nil {
-			return nil, projectionName, sourceError(statement.Source, "%v", err)
-		}
-		columns = append(columns, column)
-	}
-	return columns, projectionName, nil
+	return items, projectionName, nil
 }
 
 func (flattener *projectionFlattener) appendNodes(nodes []ir.Node) {
@@ -405,16 +431,9 @@ func hasLeadingSQLKeyword(value, keyword string) bool {
 }
 
 func projectionColumn(expression, projectionName string) (string, error) {
-	expression = stripSQLComments(expression)
-	expression = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(expression), ";"))
-	if expression == "" {
-		return "", fmt.Errorf("empty %s projection item", projectionName)
-	}
-	if expression == "*" || strings.HasSuffix(expression, ".*") {
-		return "", fmt.Errorf(
-			"%s * cannot be statically mapped; list columns explicitly",
-			projectionName,
-		)
+	expression, err := validateProjectionItem(expression, projectionName)
+	if err != nil {
+		return "", err
 	}
 
 	if _, end, found := findLastTopLevelKeyword(expression, "as"); found {
@@ -436,6 +455,35 @@ func projectionColumn(expression, projectionName string) (string, error) {
 		return "", fmt.Errorf("projection %q has no output column name", expression)
 	}
 	return column, nil
+}
+
+func validateProjectionItem(expression, projectionName string) (string, error) {
+	expression = stripSQLComments(expression)
+	expression = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(expression), ";"))
+	if expression == "" {
+		return "", fmt.Errorf("empty %s projection item", projectionName)
+	}
+	if expression == "*" || strings.HasSuffix(expression, ".*") {
+		return "", fmt.Errorf(
+			"%s * cannot be statically mapped; list columns explicitly",
+			projectionName,
+		)
+	}
+	return expression, nil
+}
+
+func validateScalarProjectionItem(expression, projectionName string) error {
+	expression, err := validateProjectionItem(expression, projectionName)
+	if err != nil {
+		return err
+	}
+	if _, end, found := findLastTopLevelKeyword(expression, "as"); found {
+		alias := strings.TrimSpace(expression[end:])
+		if column := cleanIdentifier(alias); column == "" || !isSingleSQLIdentifier(alias) {
+			return fmt.Errorf("projection %q has an invalid AS alias", expression)
+		}
+	}
+	return nil
 }
 
 func stripSQLComments(value string) string {

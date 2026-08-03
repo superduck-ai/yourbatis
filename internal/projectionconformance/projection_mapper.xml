@@ -8,4 +8,11 @@
         FROM projection_orders
         WHERE id = #{id}
     </select>
+    <select id="Exists" result="scalar">
+        SELECT EXISTS (
+            SELECT 1
+            FROM projection_orders
+            WHERE id = #{id}
+        )
+    </select>
 </mapper>

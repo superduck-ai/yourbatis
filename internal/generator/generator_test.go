@@ -836,6 +836,94 @@ type UserMapper interface {
 	}
 }
 
+func TestGenerateAllowsUnaliasedComputedScalarProjection(t *testing.T) {
+	testCases := []struct {
+		name       string
+		resultMode string
+		projection string
+	}{
+		{
+			name:       "explicit scalar exists",
+			resultMode: ` result="scalar"`,
+			projection: `EXISTS (SELECT 1 FROM users WHERE active)`,
+		},
+		{
+			name:       "inferred scalar count",
+			projection: `COUNT(*)`,
+		},
+		{
+			name:       "explicit scalar expression with AS inside",
+			resultMode: ` result="scalar"`,
+			projection: `CAST(COUNT(*) AS BOOLEAN)`,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			directory := t.TempDir()
+			writeGeneratorFixture(t, directory, "mapper.go", `package fixture
+
+import "context"
+
+type UserMapper interface {
+	Get(ctx context.Context) (bool, error)
+}
+`)
+			writeGeneratorFixture(t, directory, "user_mapper.xml", `<mapper namespace="UserMapper">
+  <select id="Get"`+testCase.resultMode+`>
+    SELECT `+testCase.projection+`
+  </select>
+</mapper>
+`)
+			output := filepath.Join(directory, "user_mapper.sqlmap.gen.go")
+			if err := Generate(Config{
+				PackageDir:    directory,
+				Mapper:        "UserMapper",
+				SQLFile:       "user_mapper.xml",
+				Output:        output,
+				RuntimeImport: "github.com/superduck-ai/yourbatis",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			generated, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := string(generated)
+			if !strings.Contains(source, "func scanUserMapperGet(row yourbatis.Scanner) (bool, error)") ||
+				!strings.Contains(source, "row.Scan(&result)") {
+				t.Fatalf("scalar scanner was not generated correctly:\n%s", source)
+			}
+		})
+	}
+}
+
+func TestGenerateRejectsWildcardScalarProjection(t *testing.T) {
+	directory := t.TempDir()
+	writeGeneratorFixture(t, directory, "mapper.go", `package fixture
+
+import "context"
+
+type UserMapper interface {
+	Get(ctx context.Context) (int64, error)
+}
+`)
+	writeGeneratorFixture(t, directory, "user_mapper.xml", `<mapper namespace="UserMapper">
+  <select id="Get" result="scalar">SELECT * FROM users</select>
+</mapper>
+`)
+	err := Generate(Config{
+		PackageDir:    directory,
+		Mapper:        "UserMapper",
+		SQLFile:       "user_mapper.xml",
+		Output:        filepath.Join(directory, "user_mapper.sqlmap.gen.go"),
+		RuntimeImport: "github.com/superduck-ai/yourbatis",
+	})
+	if err == nil || !strings.Contains(err.Error(), "SELECT * cannot be statically mapped") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestGenerateInfersByteSliceAsOneScalarValue(t *testing.T) {
 	directory := t.TempDir()
 	writeGeneratorFixture(t, directory, "mapper.go", `package fixture

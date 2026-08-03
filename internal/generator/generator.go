@@ -487,14 +487,6 @@ func buildScanPlan(
 			linked.ReturnType,
 		)
 	}
-	columns, projectionName, err := resultColumns(linked.Statement)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateUniqueProjectionColumns(columns, linked.Statement, projectionName); err != nil {
-		return nil, err
-	}
-
 	if isMapResult(goPackage, linked.ReturnExpr) {
 		return nil, sourceError(
 			linked.Statement.Source,
@@ -502,30 +494,41 @@ func buildScanPlan(
 			linked.ReturnType,
 		)
 	}
-	if linked.Mode == ir.ResultScalar {
-		if len(columns) != 1 {
-			return nil, sourceError(
-				linked.Statement.Source,
-				"result=scalar requires exactly one %s column, found %d",
-				projectionName,
-				len(columns),
-			)
+	if linked.Mode == ir.ResultScalar || (resultMap == nil && structInfo == nil) {
+		items, projectionName, err := resultProjectionItems(linked.Statement)
+		if err != nil {
+			return nil, err
 		}
-		plan.Scalar = true
-		return plan, nil
-	}
-	if resultMap == nil && structInfo == nil {
-		if len(columns) != 1 {
+		if len(items) != 1 {
+			if linked.Mode == ir.ResultScalar {
+				return nil, sourceError(
+					linked.Statement.Source,
+					"result=scalar requires exactly one %s column, found %d",
+					projectionName,
+					len(items),
+				)
+			}
 			return nil, sourceError(
 				linked.Statement.Source,
 				"scalar return type %s requires exactly one %s column, found %d; use a struct for multi-column rows",
 				linked.ReturnType,
 				projectionName,
-				len(columns),
+				len(items),
 			)
+		}
+		if err := validateScalarProjectionItem(items[0], projectionName); err != nil {
+			return nil, sourceError(linked.Statement.Source, "%v", err)
 		}
 		plan.Scalar = true
 		return plan, nil
+	}
+
+	columns, projectionName, err := resultColumns(linked.Statement)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateUniqueProjectionColumns(columns, linked.Statement, projectionName); err != nil {
+		return nil, err
 	}
 	if resultMap != nil && structInfo == nil && isKnownNonStructResult(goPackage, linked.ReturnExpr) {
 		return nil, sourceError(

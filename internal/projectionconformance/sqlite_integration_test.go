@@ -10,7 +10,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestProjectionMapperSQLiteComputedAlias(t *testing.T) {
+func TestProjectionMapperSQLiteExpressions(t *testing.T) {
 	ctx := context.Background()
 	raw, err := sql.Open("sqlite", "file:projection_conformance?mode=memory&cache=shared")
 	if err != nil {
@@ -42,5 +42,21 @@ func TestProjectionMapperSQLiteComputedAlias(t *testing.T) {
 	}
 	if order != (OrderProjection{Price: 100, Discount: 20, FinalPrice: 80}) {
 		t.Fatalf("SQLite computed projection = %#v", order)
+	}
+	mapper := NewProjectionMapper(db)
+	for _, testCase := range []struct {
+		id   int64
+		want bool
+	}{
+		{id: 1, want: true},
+		{id: 2, want: false},
+	} {
+		exists, err := mapper.Exists(ctx, testCase.id)
+		if err != nil {
+			t.Fatalf("check SQLite unaliased EXISTS for id %d: %v", testCase.id, err)
+		}
+		if exists != testCase.want {
+			t.Fatalf("SQLite unaliased EXISTS for id %d = %t, want %t", testCase.id, exists, testCase.want)
+		}
 	}
 }

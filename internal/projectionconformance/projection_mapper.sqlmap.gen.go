@@ -46,3 +46,29 @@ func (mapper *projectionMapper) Get(ctx context.Context, id int64) (OrderProject
 	__yourbatisBound := buildProjectionMapperGet(mapper.executor.Dialect(), id)
 	return yourbatis.SelectOne(ctx, mapper.executor, projectionMapperGetStatement, __yourbatisBound, scanProjectionMapperGet)
 }
+
+var projectionMapperExistsStatement = yourbatis.Statement{
+	ID:     "ProjectionMapper.Exists",
+	Source: "./projection_mapper.xml:11",
+	Kind:   yourbatis.StatementSelect,
+}
+
+func scanProjectionMapperExists(row yourbatis.Scanner) (bool, error) {
+	var result bool
+	err := row.Scan(&result)
+	return result, err
+}
+
+func buildProjectionMapperExists(dialect yourbatis.Dialect, id int64) yourbatis.BoundSQL {
+	builder := yourbatis.NewBuilder(dialect)
+	builder.BeginSQLNode()
+	builder.Text("\n        SELECT EXISTS (\n            SELECT 1\n            FROM projection_orders\n            WHERE id = ")
+	builder.Arg("id", id)
+	builder.Text("\n        )\n    ")
+	return builder.Build()
+}
+
+func (mapper *projectionMapper) Exists(ctx context.Context, id int64) (bool, error) {
+	__yourbatisBound := buildProjectionMapperExists(mapper.executor.Dialect(), id)
+	return yourbatis.SelectOne(ctx, mapper.executor, projectionMapperExistsStatement, __yourbatisBound, scanProjectionMapperExists)
+}

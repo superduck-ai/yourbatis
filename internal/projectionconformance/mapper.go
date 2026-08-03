@@ -6,4 +6,5 @@ import "context"
 
 type ProjectionMapper interface {
 	Get(ctx context.Context, id int64) (OrderProjection, error)
+	Exists(ctx context.Context, id int64) (bool, error)
 }

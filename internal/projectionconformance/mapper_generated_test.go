@@ -19,6 +19,9 @@ func TestProjectionFixtureGeneratedShape(t *testing.T) {
 		"&result.Discount",
 		"&result.FinalPrice",
 		"price - discount AS final_price",
+		"func scanProjectionMapperExists(row yourbatis.Scanner) (bool, error)",
+		"SELECT EXISTS (",
+		"row.Scan(&result)",
 	} {
 		if !strings.Contains(source, expected) {
 			t.Fatalf("generated source does not contain %q:\n%s", expected, source)

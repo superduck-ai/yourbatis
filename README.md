@@ -227,13 +227,14 @@ CountByStatus(ctx context.Context, status UserStatus) (int64, error)
 
 ```xml
 <select id="CountByStatus" result="scalar">
-  SELECT COUNT(*) AS count
+  SELECT COUNT(*)
   FROM users
   WHERE status = #{status}
 </select>
 ```
 
-Scalar statement 必须暴露且只暴露一个固定列。
+Scalar statement 必须暴露且只暴露一个固定列。单列计算表达式按位置扫描，
+不要求提供投影别名；struct 和 `resultMap` 映射中的计算表达式仍需使用显式 `AS` 别名。
 
 ## 结果映射
 

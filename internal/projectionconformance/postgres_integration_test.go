@@ -11,7 +11,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func TestProjectionMapperPostgresComputedAlias(t *testing.T) {
+func TestProjectionMapperPostgresExpressions(t *testing.T) {
 	dsn := os.Getenv("YOURBATIS_POSTGRES_DSN")
 	if dsn == "" {
 		t.Skip("set YOURBATIS_POSTGRES_DSN to run the PostgreSQL integration test")
@@ -51,5 +51,21 @@ func TestProjectionMapperPostgresComputedAlias(t *testing.T) {
 	}
 	if order != (OrderProjection{Price: 100, Discount: 20, FinalPrice: 80}) {
 		t.Fatalf("PostgreSQL computed projection = %#v", order)
+	}
+	mapper := NewProjectionMapper(db)
+	for _, testCase := range []struct {
+		id   int64
+		want bool
+	}{
+		{id: 1, want: true},
+		{id: 2, want: false},
+	} {
+		exists, err := mapper.Exists(ctx, testCase.id)
+		if err != nil {
+			t.Fatalf("check PostgreSQL unaliased EXISTS for id %d: %v", testCase.id, err)
+		}
+		if exists != testCase.want {
+			t.Fatalf("PostgreSQL unaliased EXISTS for id %d = %t, want %t", testCase.id, exists, testCase.want)
+		}
 	}
 }
