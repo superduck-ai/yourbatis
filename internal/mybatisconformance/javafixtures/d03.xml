@@ -1,0 +1,3 @@
+<mapper namespace="JavaD03Mapper">
+  <delete id="Run">SELECT * FROM BLOG<if test="true">WHERE ID = ?</if></delete>
+</mapper>

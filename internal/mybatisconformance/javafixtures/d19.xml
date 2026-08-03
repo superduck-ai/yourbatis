@@ -1,0 +1,3 @@
+<mapper namespace="JavaD19Mapper">
+  <update id="Run">UPDATE BLOG<set><if test="false">ID = ?</if><if test="true">, NAME = ?</if></set></update>
+</mapper>

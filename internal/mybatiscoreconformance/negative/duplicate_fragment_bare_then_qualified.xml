@@ -1,0 +1,4 @@
+<mapper namespace="DuplicateFragmentBareThenQualifiedMapper">
+  <sql id="columns">id</sql>
+  <sql id="DuplicateFragmentBareThenQualifiedMapper.columns">id, name</sql>
+</mapper>

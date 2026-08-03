@@ -1,0 +1,8 @@
+<mapper namespace="BindingB02Mapper">
+  <select id="Run" resultType="BindingPost">
+    SELECT id, blog_id, subject, body
+    FROM post
+    WHERE id IN (#{ids[0]}, #{ids[1]}, #{ids[2]})
+    ORDER BY id
+  </select>
+</mapper>

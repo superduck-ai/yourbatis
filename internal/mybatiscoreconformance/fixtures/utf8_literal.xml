@@ -1,0 +1,5 @@
+<mapper namespace="UTF8LiteralMapper">
+  <select id="Run" resultType="string">
+    SELECT 'Marañón' AS value
+  </select>
+</mapper>

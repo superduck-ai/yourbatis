@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="UserMapper">
+    <sql id="userColumns">
+        id,
+        name,
+        email,
+        status,
+        created_at
+    </sql>
+
+    <resultMap id="UserResult" type="User">
+        <id property="ID" column="id"/>
+        <result property="Name" column="name"/>
+        <result property="Email" column="email"/>
+        <result property="Status" column="status"/>
+        <result property="CreatedAt" column="created_at"/>
+    </resultMap>
+
+    <select id="GetByID" resultMap="UserResult">
+        SELECT
+        <include refid="userColumns"/>
+        FROM users
+        WHERE id = #{id}
+    </select>
+
+    <select id="FindByEmail" resultMap="UserResult">
+        SELECT
+        <include refid="userColumns"/>
+        FROM users
+        WHERE email = #{email,sensitive=true}
+    </select>
+
+    <!-- Aliased and computed projections map through normal Go db tags. -->
+    <select id="GetLabel" resultType="UserLabel">
+        SELECT
+            id AS user_id,
+            name || ' &lt;' || email || '&gt;' AS display_name
+        FROM users
+        WHERE id = #{id}
+    </select>
+
+    <!-- Search intentionally omits resultMap to demonstrate generated auto-mapping. -->
+    <select id="Search" resultType="User">
+        SELECT
+        <include refid="userColumns"/>
+        FROM users
+        <where>
+            <if test="params.Keyword != ''">
+                <bind name="keyword" value="params.Keyword"/>
+                AND name LIKE #{keyword}
+            </if>
+
+            <choose>
+                <when test="params.Status != nil">
+                    AND status = #{params.Status}
+                </when>
+                <otherwise>
+                    <if test="!params.IncludeDeleted">
+                        AND status != 'deleted'
+                    </if>
+                </otherwise>
+            </choose>
+
+            <foreach collection="filterPositiveUserIDs(params.IDs)"
+                     item="userID"
+                     index="index"
+                     open="AND id IN ("
+                     separator=","
+                     close=")">
+                #{userID}
+            </foreach>
+        </where>
+        ORDER BY created_at DESC
+        LIMIT #{params.Limit}
+        OFFSET #{params.Offset}
+    </select>
+
+    <select id="SearchEach" resultMap="UserResult">
+        SELECT
+        <include refid="userColumns"/>
+        FROM users
+        <where>
+            <if test="_parameter.Status != nil">
+                AND status = #{_parameter.Status}
+            </if>
+            <if test="_parameter.Status == nil &amp;&amp; !_parameter.IncludeDeleted">
+                AND status != 'deleted'
+            </if>
+        </where>
+        ORDER BY id
+    </select>
+
+    <select id="CountByStatus" result="scalar">
+        SELECT COUNT(*) AS count
+        FROM users
+        WHERE status = #{status}
+    </select>
+
+	<select id="ListNamesOrderedBy">
+		SELECT name
+		FROM users
+		ORDER BY ${column}
+	</select>
+
+    <insert id="Create" result="lastid">
+        INSERT INTO users (
+            name,
+            email,
+            status
+        ) VALUES (
+            #{params.Name},
+            #{params.Email,sensitive=true},
+            #{params.Status}
+        )
+    </insert>
+
+    <!-- CreateMany emits one multi-values INSERT. It does not split params. -->
+    <insert id="CreateMany" result="rows">
+        INSERT INTO users (
+            name,
+            email,
+            status
+        ) VALUES
+        <foreach collection="params" item="user" separator=",">
+            (
+                #{user.Name},
+                #{user.Email,sensitive=true},
+                #{user.Status}
+            )
+        </foreach>
+    </insert>
+
+    <update id="UpdateStatus" result="rows">
+        UPDATE users
+        <set>
+            status = #{status},
+            updated_at = CURRENT_TIMESTAMP,
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="Delete" result="exec">
+        DELETE FROM users
+        WHERE id = #{id}
+    </delete>
+</mapper>

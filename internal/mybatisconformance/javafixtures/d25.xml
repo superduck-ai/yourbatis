@@ -1,0 +1,3 @@
+<mapper namespace="JavaD25Mapper">
+  <insert id="Run"><foreach collection="beans" index="index" item="b" open="(" close=")" separator=",">#{b.ID}</foreach></insert>
+</mapper>

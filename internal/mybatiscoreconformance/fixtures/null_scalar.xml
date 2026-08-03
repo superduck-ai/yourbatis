@@ -1,0 +1,7 @@
+<mapper namespace="NullScalarMapper">
+  <select id="Run" resultType="string">
+    SELECT first_value
+    FROM migration_nullable_rows
+    WHERE id = #{id}
+  </select>
+</mapper>

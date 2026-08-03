@@ -1,0 +1,3 @@
+<mapper namespace="JavaE13Mapper">
+  <delete id="Run"><bind name="answer" value="name in {'Bob', 'Steve'} ? 'yes' : 'no'"/>SELECT #{answer}</delete>
+</mapper>

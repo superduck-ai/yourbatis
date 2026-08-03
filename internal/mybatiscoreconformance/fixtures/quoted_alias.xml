@@ -1,0 +1,9 @@
+<mapper namespace="QuotedAliasMapper">
+  <select id="Run" resultType="QuotedAliasRow">
+    SELECT id AS "id",
+           first_name AS "firstName",
+           last_name AS "lastName"
+    FROM migration_names
+    ORDER BY id
+  </select>
+</mapper>

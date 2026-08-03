@@ -1,0 +1,5 @@
+<mapper namespace="DuplicateResultMapBareThenQualifiedMapper">
+  <resultMap id="result" type="NegativeRow"><id property="ID" column="id"/></resultMap>
+  <resultMap id="DuplicateResultMapBareThenQualifiedMapper.result" type="NegativeRow"><id property="ID" column="id"/></resultMap>
+  <select id="Run" resultMap="result">SELECT 1 AS id</select>
+</mapper>

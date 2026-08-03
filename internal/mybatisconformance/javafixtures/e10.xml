@@ -1,0 +1,3 @@
+<mapper namespace="JavaE10Mapper">
+  <delete id="Run">SELECT name FROM<if test="_databaseId == 'hsql'"> hsql</if><if test="_databaseId != 'hsql'"> common</if> WHERE id = #{id}</delete>
+</mapper>

@@ -1,0 +1,3 @@
+<mapper namespace="JavaD26Mapper">
+  <delete id="Run">id=${id}</delete>
+</mapper>

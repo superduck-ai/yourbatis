@@ -1,0 +1,3 @@
+<mapper namespace="MissingStatementMapper">
+  <select id="Run" resultType="int64">SELECT 1 AS value</select>
+</mapper>

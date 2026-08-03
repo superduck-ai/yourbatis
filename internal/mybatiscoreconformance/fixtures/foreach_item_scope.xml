@@ -1,0 +1,14 @@
+<mapper namespace="ForeachItemScopeMapper">
+  <select id="Run" resultType="int64">
+    SELECT COUNT(*) AS count
+    FROM migration_scope_values
+    WHERE id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">
+      <foreach collection="ids2" item="id" separator=",">
+        #{id}
+      </foreach>
+      , #{id}
+    </foreach>
+    OR id = #{id}
+  </select>
+</mapper>

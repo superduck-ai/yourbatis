@@ -1,0 +1,3 @@
+<mapper namespace="JavaE21Mapper">
+  <delete id="Run">SELECT * FROM names<where><foreach collection="names" index="nameIndex" item="name" separator=" OR "><foreach collection="name.FirstNames" index="firstIndex" item="firstName" separator=" OR ">(last_name = #{name.LastName} AND first_name = #{firstName})</foreach></foreach></where></delete>
+</mapper>

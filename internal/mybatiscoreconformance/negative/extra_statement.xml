@@ -1,0 +1,4 @@
+<mapper namespace="ExtraStatementMapper">
+  <select id="Run" resultType="int64">SELECT 1 AS value</select>
+  <select id="NoMatchingMethod" resultType="int64">SELECT 2 AS value</select>
+</mapper>

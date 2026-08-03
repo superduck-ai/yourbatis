@@ -1,0 +1,13 @@
+<mapper namespace="CanonicalIncludeMapper">
+  <sql id="CanonicalIncludeMapper.columns">id, name</sql>
+  <select id="Bare" resultType="InferredUser">
+    SELECT <include refid="columns"/>
+    FROM migration_users
+    WHERE id = #{id}
+  </select>
+  <select id="Qualified" resultType="InferredUser">
+    SELECT <include refid="CanonicalIncludeMapper.columns"/>
+    FROM migration_users
+    WHERE id = #{id}
+  </select>
+</mapper>

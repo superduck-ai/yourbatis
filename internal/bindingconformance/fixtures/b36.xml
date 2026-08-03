@@ -1,0 +1,8 @@
+<mapper namespace="BindingB36Mapper">
+  <select id="Run" resultType="BindingBlog">
+    SELECT id, title
+    FROM blog
+    WHERE id = #{id}
+      AND title = #{nonExistentParam}
+  </select>
+</mapper>

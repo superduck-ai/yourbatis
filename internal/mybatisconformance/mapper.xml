@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ConformanceMapper">
+  <select id="SelectDatabaseID" resultType="string">
+    SELECT #{_databaseId} AS database_id
+  </select>
+
+  <select id="SelectEscapedDollarLiteral" resultType="string">
+    SELECT '\${literal}' AS literal_value
+  </select>
+
+  <select id="SelectCustomTrimPreservesTrailingSpace" resultType="int64">
+    SELECT id
+    FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS trim_fixture
+    <trim prefix="WHERE" prefixOverrides="NOT ">
+      NOT(id = #{id})
+    </trim>
+    ORDER BY id
+  </select>
+
+  <select id="SelectWhitespaceSuffixOverride" resultType="int64">
+    SELECT id
+    FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS suffix_fixture
+    WHERE id IN
+    <trim prefix="(" suffix=")" suffixOverrides=" |,">
+      #{id},
+    </trim>
+    ORDER BY id
+  </select>
+
+  <select id="SelectForeachRendering" resultType="int64">SELECT id FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id UNION ALL SELECT 3 AS id) AS foreach_fixture WHERE id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach> ORDER BY id</select>
+
+  <insert id="InsertMap">
+    INSERT INTO pairs (key, value) VALUES
+    <foreach collection="values" index="key" item="value" separator=",">
+      (#{key}, #{value})
+    </foreach>
+  </insert>
+
+  <insert id="InsertForeachFirst"><foreach collection="ids" index="index" item="id" open="INSERT INTO ids (id) VALUES " separator="," close="">(#{id})</foreach></insert>
+
+  <insert id="InsertBound">
+    INSERT INTO bound_values (position, value) VALUES
+    <foreach collection="values" index="index" item="value" separator=",">
+      <bind name="next" value="value + 1"/>
+      (#{index}, #{next})
+    </foreach>
+  </insert>
+
+  <insert id="InsertFiltered">
+    INSERT INTO ids (id) VALUES
+    <foreach collection="ids" index="index" item="id" separator=",">
+      <if test="id != nil">(#{*id})</if>
+    </foreach>
+  </insert>
+
+  <insert id="InsertNested">
+    INSERT INTO grouped_ids (group_position, id) VALUES
+    <foreach collection="groups" index="groupIndex" item="ids" separator=",">
+      <foreach collection="ids" index="index" item="id" separator=",">
+        (#{groupIndex}, #{id})
+      </foreach>
+    </foreach>
+  </insert>
+
+  <insert id="InsertStrictNames">
+    INSERT INTO strict_names (root_value, item_value) VALUES
+    <foreach collection="uuuu" index="index" item="u" separator=",">
+      (#{uuu["u"]}, #{u.ID})
+    </foreach>
+  </insert>
+
+  <insert id="InsertChosen">
+    INSERT INTO chosen (label, id) VALUES
+    <choose>
+      <when test="mode == 1">('first', #{id})</when>
+      <when test="mode == 2">('second', #{id})</when>
+      <otherwise>('default', #{id})</otherwise>
+    </choose>
+  </insert>
+
+  <delete id="DeleteAdjacent">DELETE FROM flags WHERE 1 = 1<if test="left">AND left_enabled = 1</if><if test="right">AND right_enabled = 1</if></delete>
+
+  <delete id="DeleteWhereSpacing">
+    DELETE FROM users
+    <where><if test="whereFirst">AND id = 1</if><if test="whereSecond">AND id &gt; 0</if></where>
+    <if test="tailFirst">AND id = 1</if><if test="tailSecond">AND id &gt; 0</if>
+  </delete>
+
+  <insert id="InsertTrimmed">
+    INSERT INTO ids
+    <trim prefix="(" suffix=")" suffixOverrides=",">
+      id,
+    </trim>
+    VALUES
+    <trim prefix="(" suffix=")" suffixOverrides=",">
+      #{id},
+    </trim>
+  </insert>
+
+  <update id="UpdateOptional">
+    UPDATE users
+    <set>
+      <if test="name != nil">name = #{name},</if>
+      <if test="status != nil">status = #{status},</if>
+    </set>
+  </update>
+
+  <select id="SelectOtherwiseOnly" resultType="int64">
+    SELECT id
+    FROM (SELECT 1 AS id UNION ALL SELECT 2 AS id) AS choose_fixture
+    <choose>
+      <otherwise>WHERE id = #{id}</otherwise>
+    </choose>
+  </select>
+
+  <select id="SelectEmptyChoose" resultType="int64">
+    SELECT 1 AS id
+    <choose/>
+  </select>
+</mapper>

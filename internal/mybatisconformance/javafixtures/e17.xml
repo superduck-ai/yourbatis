@@ -1,0 +1,3 @@
+<mapper namespace="JavaE17Mapper">
+  <insert id="Run">INSERT INTO users (id, name) VALUES<foreach item="num" index="idx" collection="values" separator=","><bind name="id" value="idx + 1"/><bind name="name" value="ConformanceUserName(num)"/>(#{id}, #{name})</foreach></insert>
+</mapper>

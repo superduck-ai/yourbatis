@@ -1,0 +1,3 @@
+<mapper namespace="JavaE25Mapper">
+  <insert id="Run">insert into users (id,<foreach collection="firstAttr" item="attr" index="index" separator=",">first_attr_${index + 1}</foreach>,<foreach collection="secondAttr" item="attr" index="index" separator=",">second_attr_${index + 1}</foreach>) values (1,<foreach collection="firstAttr" item="attr" separator=",">#{attr}</foreach>,<foreach collection="secondAttr" item="attr" separator=",">#{attr}</foreach>)</insert>
+</mapper>

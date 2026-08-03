@@ -1,0 +1,7 @@
+<mapper namespace="NullStructMapper">
+  <select id="Run" resultType="NullableRow">
+    SELECT first_value, second_value
+    FROM migration_nullable_rows
+    WHERE id = #{id}
+  </select>
+</mapper>

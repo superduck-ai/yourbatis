@@ -1,0 +1,15 @@
+<mapper namespace="BindingB28Mapper">
+  <resultMap id="AuthorResult" type="BindingAuthor">
+    <id property="ID" column="id"/>
+    <result property="Username" column="username"/>
+    <result property="Password" column="password"/>
+    <result property="Email" column="email"/>
+    <result property="Bio" column="bio"/>
+  </resultMap>
+
+  <select id="Run" resultMap="AuthorResult">
+    SELECT id, username, password, email, bio
+    FROM author
+    WHERE id = #{id}
+  </select>
+</mapper>

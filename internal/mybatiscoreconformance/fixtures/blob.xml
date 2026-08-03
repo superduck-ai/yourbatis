@@ -1,0 +1,11 @@
+<mapper namespace="BlobMapper">
+  <insert id="Insert" result="rows">
+    INSERT INTO migration_blob_rows (id, payload)
+    VALUES (#{row.ID}, #{row.Payload})
+  </insert>
+  <select id="SelectAll" resultType="BlobRow">
+    SELECT id, payload
+    FROM migration_blob_rows
+    ORDER BY id
+  </select>
+</mapper>

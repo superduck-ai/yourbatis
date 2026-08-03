@@ -1,0 +1,3 @@
+<mapper namespace="JavaE19Mapper">
+  <insert id="Run">INSERT INTO int_bool (key, value) VALUES<foreach item="item" index="key" collection="values" separator=",">(#{key}, #{item})</foreach></insert>
+</mapper>

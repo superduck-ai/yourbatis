@@ -1,0 +1,3 @@
+<mapper namespace="JavaE08Mapper">
+  <delete id="Run">SELECT 1<foreach collection="values" index="index" item="value" open=" WHERE value IN (" close=")" separator=",">#{value}</foreach></delete>
+</mapper>

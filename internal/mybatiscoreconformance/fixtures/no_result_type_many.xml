@@ -1,0 +1,7 @@
+<mapper namespace="NoResultTypeManyMapper">
+  <select id="Run">
+    SELECT id, name
+    FROM migration_users
+    ORDER BY id
+  </select>
+</mapper>

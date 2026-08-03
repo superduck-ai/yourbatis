@@ -1,0 +1,3 @@
+<mapper namespace="JavaE09Mapper">
+  <delete id="Run"><bind name="pattern" value="&quot;%&quot; + _parameter + &quot;%&quot;"/>SELECT * FROM names WHERE description LIKE #{pattern}</delete>
+</mapper>

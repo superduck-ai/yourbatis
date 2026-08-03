@@ -1,0 +1,16 @@
+<mapper namespace="CanonicalResultMapMapper">
+  <resultMap id="BareDefinition" type="InferredUser">
+    <id column="id" property="ID"/>
+    <result column="name" property="Name"/>
+  </resultMap>
+  <resultMap id="CanonicalResultMapMapper.QualifiedDefinition" type="InferredUser">
+    <id column="id" property="ID"/>
+    <result column="name" property="Name"/>
+  </resultMap>
+  <select id="FromBareDefinition" resultMap="CanonicalResultMapMapper.BareDefinition">
+    SELECT id, name FROM migration_users WHERE id = #{id}
+  </select>
+  <select id="FromQualifiedDefinition" resultMap="QualifiedDefinition">
+    SELECT id, name FROM migration_users WHERE id = #{id}
+  </select>
+</mapper>

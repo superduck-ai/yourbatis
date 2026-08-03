@@ -1,0 +1,3 @@
+<mapper namespace="JavaE22Mapper">
+  <delete id="Run">Expression test: ${name.indexOf('v')} / ${name in {'Bob', 'Steve'} ? yourbatis.Fragment('yes') : yourbatis.Fragment('no')}.</delete>
+</mapper>

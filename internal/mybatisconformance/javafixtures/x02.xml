@@ -1,0 +1,3 @@
+<mapper namespace="JavaX02Mapper">
+  <delete id="Run">DELETE FROM user<choose><when test="true">and id = 1</when><otherwize>and id &gt; 0</otherwize></choose></delete>
+</mapper>

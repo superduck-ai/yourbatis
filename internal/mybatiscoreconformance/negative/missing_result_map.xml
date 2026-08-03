@@ -1,0 +1,3 @@
+<mapper namespace="MissingResultMapMapper">
+  <select id="Run" resultMap="doesNotExist">SELECT 1 AS id</select>
+</mapper>

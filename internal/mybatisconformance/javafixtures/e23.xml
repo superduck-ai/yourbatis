@@ -1,0 +1,3 @@
+<mapper namespace="JavaE23Mapper">
+  <delete id="Run"><foreach collection="ids" item="id" separator=" union ">select * from ${schema}.names where id = #{id}</foreach></delete>
+</mapper>

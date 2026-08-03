@@ -1,0 +1,9 @@
+<mapper namespace="BindingB19Mapper">
+  <select id="Run" resultType="BindingPost">
+    SELECT id, blog_id, subject, body
+    FROM post
+    WHERE subject LIKE #{query}
+    ORDER BY id
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+</mapper>

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="ReturningMapper">
+    <resultMap id="CreatedUserResult" type="CreatedUser">
+        <id column="id" property="ID"/>
+        <result column="name" property="Name"/>
+        <result column="status" property="Status"/>
+        <result column="created_at" property="CreatedAt"/>
+    </resultMap>
+
+    <insert id="CreateID" result="returning">
+        INSERT INTO users (name)
+        VALUES (#{name})
+        RETURNING id
+    </insert>
+
+    <insert id="Create" result="returning" resultMap="CreatedUserResult">
+        INSERT INTO users (
+            name,
+            status
+        ) VALUES (
+            #{name},
+            #{status}
+        )
+        RETURNING id, name, status, created_at
+    </insert>
+
+    <insert id="CreateMany" result="returning" resultType="CreatedUser">
+        INSERT INTO users (name)
+        VALUES
+        <foreach collection="names" item="name" separator=",">
+            (#{name})
+        </foreach>
+        RETURNING id, name, status, created_at
+    </insert>
+
+    <insert id="CreateManyAsOne" result="returning" resultType="CreatedUser">
+        INSERT INTO users (name)
+        VALUES
+        <foreach collection="names" item="name" separator=",">
+            (#{name})
+        </foreach>
+        RETURNING id, name, status, created_at
+    </insert>
+
+    <update id="Rename" result="returning" resultType="CreatedUser">
+        UPDATE users
+        SET name = #{name}
+        WHERE id = #{id}
+        RETURNING id, name, status, created_at
+    </update>
+
+    <update id="Disable" result="returning" resultType="CreatedUser">
+        UPDATE users
+        SET status = 'disabled'
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        RETURNING id, name, status, created_at
+    </update>
+
+    <delete id="Delete" result="returning" resultType="CreatedUser">
+        DELETE FROM users
+        WHERE id = #{id}
+        RETURNING id, name, status, created_at
+    </delete>
+
+    <select id="Get" resultType="CreatedUser">
+        SELECT id, name, status, created_at
+        FROM users
+        WHERE id = #{id}
+    </select>
+
+    <select id="FindByStatus" result="optional" resultType="CreatedUser">
+        SELECT id, name, status, created_at
+        FROM users
+        WHERE status = #{status}
+    </select>
+
+    <select id="Count" result="scalar">
+        SELECT COUNT(*) AS count
+        FROM users
+    </select>
+</mapper>

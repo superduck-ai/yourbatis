@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="ProjectionMapper">
+    <select id="Get" resultType="OrderProjection">
+        SELECT
+            price,
+            discount,
+            price - discount AS final_price
+        FROM projection_orders
+        WHERE id = #{id}
+    </select>
+</mapper>

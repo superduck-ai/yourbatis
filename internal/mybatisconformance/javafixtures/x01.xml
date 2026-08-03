@@ -1,0 +1,3 @@
+<mapper namespace="JavaX01Mapper">
+  <delete id="Run">DELETE FROM user<where><if test="true">and id = 1</if><if test="true">and id &gt; 0</if></where><if test="true">and id = 1</if><if test="true">and id &gt; 0</if></delete>
+</mapper>

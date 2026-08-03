@@ -1,0 +1,3 @@
+<mapper namespace="JavaE16Mapper">
+  <delete id="Run"><bind name="escaped" value="EscapeLike(_parameter)"/>SELECT #{escaped}</delete>
+</mapper>

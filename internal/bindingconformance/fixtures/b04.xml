@@ -1,0 +1,9 @@
+<mapper namespace="BindingB04Mapper">
+  <select id="Run" resultType="BindingPost">
+    SELECT id, blog_id, subject, body
+    FROM post
+    WHERE id IN (#{one}, #{two}, #{three})
+    ORDER BY id
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+</mapper>

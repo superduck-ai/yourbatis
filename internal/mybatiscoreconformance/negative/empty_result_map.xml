@@ -1,0 +1,4 @@
+<mapper namespace="EmptyResultMapMapper">
+  <resultMap id="empty" type="NegativeRow"/>
+  <select id="Run" resultMap="empty">SELECT 1 AS id</select>
+</mapper>

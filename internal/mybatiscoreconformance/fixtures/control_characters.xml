@@ -1,0 +1,11 @@
+<mapper namespace="ControlCharacterMapper">
+  <insert id="Insert" result="rows">
+    INSERT INTO migration_control_characters (id, value)
+    VALUES (#{id}, '&#009;a&#032;&#032;b&#013;&#010;&#009;c&#010;')
+  </insert>
+  <select id="Get" resultType="string">
+    SELECT value
+    FROM migration_control_characters
+    WHERE id = #{id}
+  </select>
+</mapper>

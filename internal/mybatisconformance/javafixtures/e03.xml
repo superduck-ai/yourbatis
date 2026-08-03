@@ -1,0 +1,3 @@
+<mapper namespace="JavaE03Mapper">
+  <delete id="Run">SELECT 1<if test="username"> WHERE matched = 1</if></delete>
+</mapper>

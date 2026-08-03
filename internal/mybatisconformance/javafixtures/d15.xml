@@ -1,0 +1,3 @@
+<mapper namespace="JavaD15Mapper">
+  <delete id="Run">SELECT * FROM BLOG<where><if test="false">   and ID = ?  </if><if test="true">   or NAME = ?  </if></where></delete>
+</mapper>

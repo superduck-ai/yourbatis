@@ -1,0 +1,7 @@
+<mapper namespace="CamelCaseMapper">
+  <select id="Run" resultType="CamelCaseRow">
+    SELECT id, first_name
+    FROM migration_names
+    ORDER BY id
+  </select>
+</mapper>

@@ -1,0 +1,12 @@
+<mapper namespace="ByteScalarMapper">
+  <select id="One" resultType="[]byte">
+    SELECT payload
+    FROM migration_binary_values
+    WHERE id = #{id}
+  </select>
+  <select id="Many" resultType="[]byte">
+    SELECT payload
+    FROM migration_binary_values
+    ORDER BY id
+  </select>
+</mapper>

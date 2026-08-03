@@ -1,0 +1,3 @@
+<mapper namespace="JavaE24Mapper">
+  <delete id="Run">select count(*) from key_cols where <foreach collection="values" item="item" index="key" separator=" AND ">${key} = #{item}</foreach></delete>
+</mapper>

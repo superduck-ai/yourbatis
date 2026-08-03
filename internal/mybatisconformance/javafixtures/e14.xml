@@ -1,0 +1,3 @@
+<mapper namespace="JavaE14Mapper">
+  <delete id="Run">SELECT 1<if test="value != null and *value not in {''}"> WHERE matched = 1</if></delete>
+</mapper>

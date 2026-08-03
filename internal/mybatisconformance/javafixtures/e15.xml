@@ -1,0 +1,3 @@
+<mapper namespace="JavaE15Mapper">
+  <delete id="Run">SELECT 1<if test="_parameter.toString() == 'EMPLOYEE'"> WHERE employee = 1</if></delete>
+</mapper>

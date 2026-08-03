@@ -1,0 +1,3 @@
+<mapper namespace="JavaE18Mapper">
+  <insert id="Run">INSERT INTO string_string (key, value) VALUES<foreach item="item" index="key" collection="values" separator=",">(#{key}, #{item})</foreach></insert>
+</mapper>

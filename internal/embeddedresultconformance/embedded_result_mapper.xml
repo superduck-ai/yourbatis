@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="EmbeddedResultMapper">
+    <resultMap id="UserResult" type="User">
+        <id column="id" property="ID"/>
+        <result column="name" property="Name"/>
+    </resultMap>
+
+    <select id="Get" resultMap="UserResult">
+        SELECT id, name
+        FROM embedded_result_users
+        WHERE id = #{id}
+    </select>
+</mapper>

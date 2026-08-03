@@ -1,0 +1,14 @@
+<mapper namespace="BindingB07Mapper">
+  <insert id="Run" result="rows">
+    INSERT INTO author (
+      id, username, password, email, bio, missing_column
+    ) VALUES (
+      #{author.ID},
+      #{author.Username},
+      #{author.Password},
+      #{author.Email},
+      #{author.Bio},
+      'invalid'
+    )
+  </insert>
+</mapper>

@@ -1,0 +1,3 @@
+<mapper namespace="JavaD27Mapper">
+  <delete id="Run">&#9;&#10;&#10;  SELECT * &#10;        FROM user&#10; &#9;        WHERE user_id = 1&#10;&#9;  </delete>
+</mapper>

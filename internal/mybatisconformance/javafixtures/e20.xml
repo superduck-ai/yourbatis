@@ -1,0 +1,3 @@
+<mapper namespace="JavaE20Mapper">
+  <insert id="Run">INSERT INTO nested_bean (keya, keyb, valuea, valueb) VALUES<foreach item="item" index="key" collection="values" separator=",">(#{key.A}, #{key.B}, #{item.A}, #{item.B})</foreach></insert>
+</mapper>

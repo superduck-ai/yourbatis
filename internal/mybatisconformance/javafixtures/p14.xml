@@ -1,0 +1,3 @@
+<mapper namespace="JavaP14Mapper">
+  <delete id="Run">DELETE FROM BLOG WHERE ID = #{(expression)+}</delete>
+</mapper>

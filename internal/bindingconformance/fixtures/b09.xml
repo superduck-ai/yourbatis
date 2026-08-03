@@ -1,0 +1,5 @@
+<mapper namespace="BindingB09Mapper">
+  <select id="Run" result="scalar">
+    SELECT 1 AS value
+  </select>
+</mapper>

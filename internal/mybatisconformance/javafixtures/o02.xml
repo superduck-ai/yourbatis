@@ -1,0 +1,3 @@
+<mapper namespace="JavaO02Mapper">
+  <delete id="Run">SELECT 1<if test="left.Compare(right) &lt; 0"> WHERE before = 1</if></delete>
+</mapper>

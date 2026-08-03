@@ -1,0 +1,3 @@
+<mapper namespace="JavaD06Mapper">
+  <delete id="Run">SELECT * FROM BLOG<choose><when test="true">WHERE CATEGORY = ?</when><when test="false">WHERE CATEGORY = 'NONE'</when><otherwise>WHERE CATEGORY = 'DEFAULT'</otherwise></choose></delete>
+</mapper>

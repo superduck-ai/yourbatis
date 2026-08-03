@@ -1,0 +1,3 @@
+<mapper namespace="JavaP01Mapper">
+  <delete id="Run">DELETE FROM BLOG WHERE ID = #{id}</delete>
+</mapper>

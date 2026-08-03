@@ -1,0 +1,14 @@
+<mapper namespace="NestedValuesMapper">
+  <insert id="Insert" result="rows">
+    INSERT INTO migration_nested_values (item_id, property_id, property_value)
+    VALUES
+    <foreach collection="item.Properties" item="property" separator=",">
+      (#{item.ID}, #{property.ID}, #{property.Value})
+    </foreach>
+  </insert>
+  <select id="Count" resultType="int64">
+    SELECT COUNT(*) AS count
+    FROM migration_nested_values
+    WHERE item_id = #{itemID}
+  </select>
+</mapper>

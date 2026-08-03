@@ -1,0 +1,3 @@
+<mapper namespace="JavaD24Mapper">
+  <insert id="Run">INSERT INTO BLOG (ROOT_VALUE, ITEM_VALUE) VALUES<foreach collection="uuuu" index="index" item="u" open="" close="" separator=",">(#{uuu["u"]}, #{u.ID})</foreach></insert>
+</mapper>

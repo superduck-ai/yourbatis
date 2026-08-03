@@ -1,0 +1,5 @@
+<mapper namespace="DuplicateResultMapMapper">
+  <resultMap id="duplicate" type="NegativeRow"><id property="ID" column="id"/></resultMap>
+  <resultMap id="duplicate" type="NegativeRow"><id property="ID" column="id"/></resultMap>
+  <select id="Run" resultMap="duplicate">SELECT 1 AS id</select>
+</mapper>

@@ -1,0 +1,4 @@
+<mapper namespace="ForeignResultMapReferenceMapper">
+  <resultMap id="result" type="NegativeRow"><id property="ID" column="id"/></resultMap>
+  <select id="Run" resultMap="OtherMapper.result">SELECT 1 AS id</select>
+</mapper>

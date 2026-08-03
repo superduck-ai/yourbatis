@@ -1,0 +1,6 @@
+<mapper namespace="MissingIncludeMapper">
+  <sql id="localColumns">id</sql>
+  <select id="Run" resultType="int64">
+    SELECT <include refid="other.Mapper.columns"/> FROM migration_users
+  </select>
+</mapper>
