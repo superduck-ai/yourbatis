@@ -540,11 +540,21 @@ func TestUserMapperSQLiteManualTransaction(t *testing.T) {
 		_ = tx.Rollback()
 		t.Fatalf("create in manual transaction: %v", err)
 	}
+	if _, err := tx.SQLTx().ExecContext(ctx, `
+		INSERT INTO users (name, email, status)
+		VALUES (?, ?, ?)
+	`, "SQLTx Commit", "sqltx-commit@example.com", UserStatusActive); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("create through SQLTx in manual transaction: %v", err)
+	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit manual transaction: %v", err)
 	}
 	if _, err := mapper.GetByID(ctx, committedID); err != nil {
 		t.Fatalf("get manually committed user: %v", err)
+	}
+	if _, found, err := mapper.FindByEmail(ctx, "sqltx-commit@example.com"); err != nil || !found {
+		t.Fatalf("find SQLTx-committed user = (found %t, error %v)", found, err)
 	}
 
 	tx, err = db.BeginTx(ctx, &sql.TxOptions{})
@@ -561,11 +571,21 @@ func TestUserMapperSQLiteManualTransaction(t *testing.T) {
 		_ = tx.Rollback()
 		t.Fatalf("create before manual rollback: %v", err)
 	}
+	if _, err := tx.SQLTx().ExecContext(ctx, `
+		INSERT INTO users (name, email, status)
+		VALUES (?, ?, ?)
+	`, "SQLTx Rollback", "sqltx-rollback@example.com", UserStatusActive); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("create through SQLTx before manual rollback: %v", err)
+	}
 	if err := tx.Rollback(); err != nil {
 		t.Fatalf("rollback manual transaction: %v", err)
 	}
 	if _, err := mapper.GetByID(ctx, rolledBackID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("manually rolled-back user lookup error = %v, want sql.ErrNoRows", err)
+	}
+	if _, found, err := mapper.FindByEmail(ctx, "sqltx-rollback@example.com"); err != nil || found {
+		t.Fatalf("find SQLTx-rolled-back user = (found %t, error %v)", found, err)
 	}
 }
 

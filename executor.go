@@ -379,6 +379,15 @@ func (tx *Tx) DatabaseID() string {
 	return tx.databaseID
 }
 
+// SQLTx returns the underlying database/sql transaction for integrations
+// requiring *sql.Tx.
+//
+// The returned transaction remains owned by Tx. Callers must not call Commit
+// or Rollback and must not retain it after the Yourbatis transaction finishes.
+func (tx *Tx) SQLTx() *sql.Tx {
+	return tx.raw
+}
+
 func (tx *Tx) Query(
 	ctx context.Context,
 	statement Statement,
