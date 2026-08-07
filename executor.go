@@ -351,7 +351,7 @@ func (db *DB) BeginTx(
 		return nil, fmt.Errorf("yourbatis: begin transaction: %w", err)
 	}
 	return &Tx{
-		raw:        raw,
+		Tx:         raw,
 		dialect:    db.dialect,
 		databaseID: db.databaseID,
 		logger:     db.logger,
@@ -360,7 +360,7 @@ func (db *DB) BeginTx(
 
 // Tx is a database transaction and an Executor for generated Mappers.
 type Tx struct {
-	raw        *sql.Tx
+	*sql.Tx
 	dialect    Dialect
 	databaseID string
 	logger     Logger
@@ -385,7 +385,7 @@ func (tx *Tx) DatabaseID() string {
 // The returned transaction remains owned by Tx. Callers must not call Commit
 // or Rollback and must not retain it after the Yourbatis transaction finishes.
 func (tx *Tx) SQLTx() *sql.Tx {
-	return tx.raw
+	return tx.Tx
 }
 
 func (tx *Tx) Query(
@@ -396,7 +396,7 @@ func (tx *Tx) Query(
 	if err := validateRuntimeDialect(tx.dialect); err != nil {
 		return nil, err
 	}
-	return query(ctx, tx.raw, tx.logger, statement, bound)
+	return query(ctx, tx.Tx, tx.logger, statement, bound)
 }
 
 func (tx *Tx) Exec(
@@ -407,12 +407,12 @@ func (tx *Tx) Exec(
 	if err := validateRuntimeDialect(tx.dialect); err != nil {
 		return nil, err
 	}
-	return exec(ctx, tx.raw, tx.logger, statement, bound)
+	return exec(ctx, tx.Tx, tx.logger, statement, bound)
 }
 
 // Commit commits the transaction.
 func (tx *Tx) Commit() error {
-	if err := tx.raw.Commit(); err != nil {
+	if err := tx.Tx.Commit(); err != nil {
 		return fmt.Errorf("yourbatis: commit transaction: %w", err)
 	}
 	return nil
@@ -420,7 +420,7 @@ func (tx *Tx) Commit() error {
 
 // Rollback aborts the transaction.
 func (tx *Tx) Rollback() error {
-	if err := tx.raw.Rollback(); err != nil {
+	if err := tx.Tx.Rollback(); err != nil {
 		return fmt.Errorf("yourbatis: rollback transaction: %w", err)
 	}
 	return nil
