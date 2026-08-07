@@ -292,6 +292,13 @@ func TestUserMapperPostgresSearchEachAndCreateMany(t *testing.T) {
 		_ = tx.Rollback()
 		t.Fatalf("update in manual PostgreSQL transaction: %v", err)
 	}
+	if _, err := tx.SQLTx().ExecContext(ctx, `
+		INSERT INTO users (name, email, status)
+		VALUES ($1, $2, $3)
+	`, "Postgres SQLTx Commit", "postgres-sqltx-commit@example.com", active); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("create through SQLTx in manual PostgreSQL transaction: %v", err)
+	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit manual PostgreSQL transaction: %v", err)
 	}
@@ -301,6 +308,9 @@ func TestUserMapperPostgresSearchEachAndCreateMany(t *testing.T) {
 	}
 	if manuallyCommitted.Status != active {
 		t.Fatalf("status after manual commit = %q, want %q", manuallyCommitted.Status, active)
+	}
+	if _, found, err := mapper.FindByEmail(ctx, "postgres-sqltx-commit@example.com"); err != nil || !found {
+		t.Fatalf("find SQLTx-committed PostgreSQL user = (found %t, error %v)", found, err)
 	}
 
 	tx, err = db.BeginTx(ctx, &sql.TxOptions{})
@@ -312,6 +322,13 @@ func TestUserMapperPostgresSearchEachAndCreateMany(t *testing.T) {
 		_ = tx.Rollback()
 		t.Fatalf("update before manual PostgreSQL rollback: %v", err)
 	}
+	if _, err := tx.SQLTx().ExecContext(ctx, `
+		INSERT INTO users (name, email, status)
+		VALUES ($1, $2, $3)
+	`, "Postgres SQLTx Rollback", "postgres-sqltx-rollback@example.com", disabled); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("create through SQLTx before manual PostgreSQL rollback: %v", err)
+	}
 	if err := tx.Rollback(); err != nil {
 		t.Fatalf("manual PostgreSQL rollback: %v", err)
 	}
@@ -321,5 +338,8 @@ func TestUserMapperPostgresSearchEachAndCreateMany(t *testing.T) {
 	}
 	if manuallyRolledBack.Status != active {
 		t.Fatalf("status after manual rollback = %q, want %q", manuallyRolledBack.Status, active)
+	}
+	if _, found, err := mapper.FindByEmail(ctx, "postgres-sqltx-rollback@example.com"); err != nil || found {
+		t.Fatalf("find SQLTx-rolled-back PostgreSQL user = (found %t, error %v)", found, err)
 	}
 }
