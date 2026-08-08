@@ -158,6 +158,18 @@ func TestUserMapperSQLiteCRUD(t *testing.T) {
 	}
 }
 
+func TestUserMapperSQLiteClose(t *testing.T) {
+	ctx := context.Background()
+	db, mapper, _ := newSQLiteMapper(t)
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("close SQLite runtime: %v", err)
+	}
+	if _, err := mapper.Search(ctx, SearchUserParams{}); err == nil {
+		t.Fatal("query after closing SQLite runtime succeeded")
+	}
+}
+
 func TestUserMapperSQLiteQuotesDynamicIdentifier(t *testing.T) {
 	ctx := context.Background()
 	_, mapper, _ := newSQLiteMapper(t)

@@ -429,6 +429,9 @@ users := user.NewUserMapper(runtimeDB)
 found, err := users.GetByID(ctx, userID)
 ```
 
+不再使用 runtime 时，可调用 `runtimeDB.Close()` 关闭 `NewDB` 接收的标准库句柄。
+如果调用方仍自行管理 `rawDB`，则只需选择其中一个关闭入口。
+
 `DB` 和 `Tx` 都实现 `Executor`。事务中需要哪个 Mapper，就使用回调传入的
 事务 executor 构造哪个 Mapper，不需要生成 Store：
 

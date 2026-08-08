@@ -265,6 +265,14 @@ func (db *DB) DatabaseID() string {
 	return db.databaseID
 }
 
+// Close closes the underlying database/sql database.
+func (db *DB) Close() error {
+	if db == nil || db.raw == nil {
+		return nil
+	}
+	return db.raw.Close()
+}
+
 func (db *DB) Query(ctx context.Context, statement Statement, bound BoundSQL) (*sql.Rows, error) {
 	if err := validateRuntimeDialect(db.dialect); err != nil {
 		return nil, err

@@ -342,4 +342,10 @@ func TestUserMapperPostgresSearchEachAndCreateMany(t *testing.T) {
 	if _, found, err := mapper.FindByEmail(ctx, "postgres-sqltx-rollback@example.com"); err != nil || found {
 		t.Fatalf("find SQLTx-rolled-back PostgreSQL user = (found %t, error %v)", found, err)
 	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close PostgreSQL runtime: %v", err)
+	}
+	if _, err := mapper.Search(ctx, SearchUserParams{}); err == nil {
+		t.Fatal("query after closing PostgreSQL runtime succeeded")
+	}
 }
