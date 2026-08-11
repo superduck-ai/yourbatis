@@ -98,6 +98,22 @@ func TestEnvironmentDebugLoggerStaysDisabledForFalseValue(t *testing.T) {
 	}
 }
 
+func TestSQLDBReturnsUnderlyingDatabase(t *testing.T) {
+	raw, err := sql.Open("sqlite", "file:sql_db?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := raw.Close(); err != nil {
+			t.Errorf("close SQLite: %v", err)
+		}
+	})
+
+	if got := NewDB(raw, DialectSQLite).SQLDB(); got != raw {
+		t.Fatalf("SQLDB() = %p, want %p", got, raw)
+	}
+}
+
 func TestDebugArgumentFormatsUUIDAsCanonicalString(t *testing.T) {
 	id := debugUUID{text: "550e8400-e29b-41d4-a716-446655440000"}
 	for _, testCase := range []struct {

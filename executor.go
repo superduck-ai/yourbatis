@@ -265,6 +265,13 @@ func (db *DB) DatabaseID() string {
 	return db.databaseID
 }
 
+// SQLDB returns the underlying database/sql database for integrations that
+// require *sql.DB. The returned database remains owned by DB; callers must not
+// close it independently.
+func (db *DB) SQLDB() *sql.DB {
+	return db.raw
+}
+
 // Close closes the underlying database/sql database.
 func (db *DB) Close() error {
 	if db == nil || db.raw == nil {
