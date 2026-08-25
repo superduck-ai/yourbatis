@@ -124,7 +124,7 @@ func lookupStructField(
 
 	typePackage, complete := goPackage.loadTypePackage()
 	if typePackage == nil {
-		return structFieldUnknown
+		return structFieldMissing
 	}
 	typeObject, ok := typePackage.Scope().Lookup(typeName).(*types.TypeName)
 	if !ok {
