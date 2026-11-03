@@ -1,28 +1,54 @@
 # 在 Go 里写动态 SQL，同时保留编译期的确定性
 
-yourbatis 是一个 Go SQL Mapper。你用 Go interface 定义数据访问 API，用 MyBatis 风格的
-XML 编写 SQL，然后由 `go generate` 把两者编译成普通的 Go 代码。生成后的程序在运行时不解析
-XML，也不解释表达式；生成代码和运行时库都不使用反射。
+几乎每个写过 Go 后端的人，都写过类似这样的代码：
 
-我们做这个项目，是因为 Go 生态里缺少这样一种工具：既能像 MyBatis 那样用 `<if>`、
-`<where>`、`<foreach>` 写动态 SQL，又能像 sqlc 那样在生成期就发现错误。
+```go
+query := "SELECT id, name, email FROM users WHERE 1=1"
+args := []any{}
+if p.Keyword != "" {
+    args = append(args, p.Keyword)
+    query += fmt.Sprintf(" AND name LIKE $%d", len(args))
+}
+if p.Status != nil {
+    args = append(args, *p.Status)
+    query += fmt.Sprintf(" AND status = $%d", len(args))
+}
+rows, err := db.QueryContext(ctx, query, args...)
+```
 
-本文会介绍 yourbatis 是什么、它解决了什么问题，以及 sqlc 等现有方案的局限，并重点拆解
-它的工作原理。项目目前仍处于实验阶段，代码在
+它能用，但没人愿意多看它一眼。`WHERE 1=1` 只是为了少处理一个 `AND`，占位符编号靠 `len(args)`
+手动对齐，SQL 被拆成碎片散落在各个 `if` 里。条件再多几个，再加上 `IN` 列表和动态排序，就很难
+一眼看出最终执行的是什么 SQL。
+
+对于静态查询，Go 社区已经有了很好的答案：sqlc。你写纯 SQL，它通过 `go generate` 生成类型安全
+的代码。可一旦条件变成可选的，sqlc 就不太好用了。
+
+Java 那边，这个问题有一个用了二十多年的答案：MyBatis。同样的查询在 MyBatis 里是这样写的：
+
+```xml
+<select id="Search" resultType="User">
+    SELECT id, name, email FROM users
+    <where>
+        <if test="keyword != ''">AND name LIKE #{keyword}</if>
+        <if test="status != null">AND status = #{status}</if>
+    </where>
+</select>
+```
+
+`<where>` 负责处理多余的 `AND`，`#{}` 负责参数绑定，最终 SQL 长什么样，一眼就能看出来。不过
+MyBatis 的这些表达式是在运行时解释执行的，字段名拼错这类问题，要等那条代码真正执行时才会暴露。
+
+yourbatis 想把这种写法带到 Go 里，并且用 Go 开发者熟悉的方式来实现：像 sqlc 一样，在
+`go generate` 阶段把 XML 和你定义的 Go interface 编译成普通的 Go 代码。运行时不解析 XML，也不
+解释表达式；字段不存在、类型对不上这类错误，在生成阶段就会报出来。
+
+本文会介绍 yourbatis 是什么、它解决了什么问题、与 sqlc 等现有方案有什么不同，并重点讲解它的
+工作原理。项目目前仍处于实验阶段，代码在
 [github.com/superduck-ai/yourbatis](https://github.com/superduck-ai/yourbatis)。
 
-## 设计来源：MyBatis
+## 同一个方法，不同的 SQL
 
-yourbatis 的 XML 写法来自 MyBatis（前身是 2001 年前后诞生的 iBATIS）。与 ORM 不同，MyBatis
-不替开发者生成 SQL，只负责把手写 SQL 的输入和输出映射到对象上，至今仍是 Java 生态最常用的
-数据访问方式之一。它的不足在于动态 SQL 依赖 OGNL 在运行时解释表达式，结果映射依赖反射，
-错误要到执行时才会暴露。
-
-yourbatis 保留 MyBatis 的 SQL 和动态写法，把这些检查都提前到生成期完成。
-
-## 一个看似简单的搜索接口
-
-问题往往始于一个普通的需求：按条件搜索用户。
+把开头的例子写完整一些。搜索用户时，参数通常是这样的：
 
 ```go
 type SearchUserParams struct {
@@ -55,8 +81,8 @@ ORDER BY created_at DESC LIMIT $5 OFFSET $6
 
 在 Go 里实现它，常见的三种做法各有代价：
 
-- **手写拼接。** SQL 依然可读，也足够灵活，但 `$n` 编号、多余的 `AND` 和注入防护都
-  靠人来保证。错误只能在运行时发现。
+- **手写拼接**，也就是开头那段代码。它足够灵活，但 `$n` 编号、多余的 `AND` 和注入防护
+  都靠人来保证，错误只能在运行时发现。
 - **改用 query builder 或 ORM。** 拼接问题交给了库，但 SQL 变成了方法调用。代码审查
   时看到的不再是将要执行的 SQL，而是生成 SQL 的 Go 代码。
 - **用 sqlc。** SQL 可读，并且能在生成期检查，但每个查询只能对应一条固定的 SQL。
