@@ -773,6 +773,52 @@ err := db.Transaction(ctx, func(tx yourbatis.Executor) error {
 | 目标检查 | 方言不支持的结果模式 | `target dialect postgres does not support LastInsertId` |
 | Go 编译器 | 生成器未覆盖的类型错误 | `mismatched types int and untyped string` |
 
+## 开发体验：在 Go 和 XML 之间跳转
+
+把 API 写在 Go interface 里、把 SQL 写在 XML 里，这种分工有一个直接的代价：同一个方法被分到了两个
+文件中。读代码时，经常需要从 `Search` 方法跳到它的 SQL，或者从一段 SQL 回到调用它的方法签名。
+
+IDE 自带的跳转帮不上这个忙。在 GoLand 里对 `UserMapper.Search` 使用 **Go to Implementation**，
+会跳到生成的 `user_mapper.sqlmap.gen.go`。这个结果没有错，生成代码确实是 interface 的实现，但它不是
+开发者想看的地方。真正需要修改的是 XML。
+
+为此，仓库里附带了一个 GoLand/IntelliJ IDEA 插件（`jetbrains-plugin/`），提供双向跳转：
+
+- 在 Go interface 名称旁点击 gutter 图标，跳到 `<mapper namespace="UserMapper">`；在方法名旁点击，
+  跳到同名的 `<select>`、`<insert>`、`<update>` 或 `<delete>`。
+- 在 XML 的 `<mapper>` 旁点击图标，跳回 Go interface；在 statement 旁点击，跳回对应的方法。
+- namespace 可以是简单名称，也可以是以接口名结尾的限定名称，例如
+  `github.com/acme/user.UserMapper`。匹配到多个目标时，插件会弹出列表供选择。
+
+插件的实现只有几百行 Java，其中有几个设计决定和 yourbatis 本身的取向是一致的。
+
+**不覆盖原有行为。** 插件的图标放在 gutter 左侧，GoLand 自己的实现标记位于右侧，两者互不干扰。
+**Go to Implementation** 仍然跳到生成代码，想看 SQL 时用插件，想看生成结果时用 IDE 原有的跳转。
+插件只添加功能，不替换任何已有行为。
+
+**用索引，而不是扫描。** 插件注册了一个基于文件的索引，键是"Mapper 名称 + statement ID"，值是包含
+它的 XML 文件。索引阶段用 StAX 流式读取 XML，只看根元素 `<mapper>` 和它的直接子元素，不构建 PSI
+语法树。因此每次跳转都是一次索引查询，不会遍历整个项目；修改 XML 后，IDE 的常规索引流程会自动
+更新结果。图标的计算放在 IDE 的"慢速标记"阶段，不会拖慢编辑器的响应。
+
+**不碰网络，也不解析外部实体。** Mapper XML 通常带有指向 `https://mybatis.org/dtd/...` 的
+`DOCTYPE`。插件在索引时关闭了 DTD 支持和外部实体解析，既不会在打开项目时下载 DTD，也排除了
+XXE 一类的风险。这和生成器内嵌 DTD、从不联网的做法一致。
+
+**排序有依据。** 从 XML 跳回 Go 时，可能有多个同名 interface。插件优先选择包路径与 namespace
+限定部分一致的那个，其次选择和 XML 位于同一目录的那个，最后按路径排序，让最可能的目标排在最前。
+
+插件目前需要从源码构建（JDK 21，默认面向 GoLand 2025.3），然后通过
+**Settings | Plugins | Install Plugin from Disk...** 安装：
+
+```bash
+cd jetbrains-plugin
+./gradlew buildPlugin
+```
+
+生成器负责把 XML 和 Go 之间的契约检查清楚，插件负责让开发者在两者之间来回切换时不迷路。这两件事
+一起，才让"SQL 写在 XML 里"成为一个可以长期使用的工作方式。
+
 ## 我们如何验证它
 
 一个声称"兼容 MyBatis 动态 SQL 子集"的工具，最容易犯的错误是自己定义了"兼容"的含义。
@@ -819,8 +865,8 @@ go test ./example/user
 ```
 
 生成结果可以在 `example/user/user_mapper.sqlmap.gen.go` 中直接阅读。我们建议从这个
-文件开始了解 yourbatis：它就是普通的 Go 代码。GoLand/IntelliJ 用户还可以安装仓库里
-的 `jetbrains-plugin`，在 Go 方法与 XML statement 之间双向跳转。
+文件开始了解 yourbatis：它就是普通的 Go 代码。GoLand/IntelliJ 用户可以按上文的说明
+安装 `jetbrains-plugin`，在 Go 方法与 XML statement 之间双向跳转。
 
 更多细节请参阅：
 
