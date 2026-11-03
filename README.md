@@ -55,10 +55,7 @@ package user
 
 import "context"
 
-//go:generate go run github.com/superduck-ai/yourbatis/cmd/sqlmapgen \
-//  -mapper UserMapper \
-//  -sql ./user_mapper.xml \
-//  -dialect postgres
+//go:generate go run github.com/superduck-ai/yourbatis/cmd/sqlmapgen -mapper UserMapper -sql ./user_mapper.xml -dialect postgres
 
 type User struct {
     ID    int64  `db:"id"`
