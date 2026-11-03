@@ -13,21 +13,12 @@ yourbatis 是一个开源的 Go SQL Mapper。你用 Go interface 定义数据访
 
 ## 设计来源：MyBatis
 
-yourbatis 的 XML 写法来自 MyBatis。MyBatis 的前身是 iBATIS，由 Clinton Begin 在 2001 年
-前后发起，2004 年捐赠给 Apache 软件基金会，2010 年迁出 Apache 并更名为 MyBatis。
+yourbatis 的 XML 写法来自 MyBatis（前身是 2001 年前后诞生的 iBATIS）。与 ORM 不同，MyBatis
+不替开发者生成 SQL，只负责把手写 SQL 的输入和输出映射到对象上，至今仍是 Java 生态最常用的
+数据访问方式之一。它的不足在于动态 SQL 依赖 OGNL 在运行时解释表达式，结果映射依赖反射，
+错误要到执行时才会暴露。
 
-与以 Hibernate 为代表的 ORM 不同，MyBatis 不替开发者生成 SQL。它认为 SQL 值得人来认真
-编写，框架只负责把 SQL 的输入和输出映射到对象上，所以它称自己为 SQL Mapper，而不是 ORM。
-这个思路经受住了时间的考验，MyBatis 至今仍是 Java 生态中最常用的数据访问方式之一。
-
-不过，MyBatis 的动态 SQL 依赖运行时机制：`<if test>` 里的表达式由 OGNL 在执行时解释，
-结果映射依赖反射。字段名拼错、比较的类型对不上，都要等到那条代码路径真正执行时才会暴露。
-
-Go 社区的习惯恰好相反：尽量让编译器提前发现错误，少用运行时反射。sqlc 把"SQL 由人编写"
-和生成期检查结合得很好，但它要求每个查询对应一条固定的 SQL，动态 SQL 因此很难表达。
-
-yourbatis 想把两者结合起来：沿用 MyBatis 的 SQL 和动态写法，同时像 Go 工具一样在生成期
-完成检查，产出静态代码。
+yourbatis 保留 MyBatis 的 SQL 和动态写法，把这些检查都提前到生成期完成。
 
 ## 一个看似简单的搜索接口
 
