@@ -1,62 +1,33 @@
 # 在 Go 里写动态 SQL，同时保留编译期的确定性
 
-用过 MyBatis 的人，大概都写过这样一段 XML：
+yourbatis 是一个开源的 Go SQL Mapper。你用 Go interface 定义数据访问 API，用 MyBatis
+风格的 XML 编写 SQL，然后由 `go generate` 把两者编译成普通的 Go 代码。生成后的程序在
+运行时不解析 XML，不解释表达式，也不依赖反射。
 
-```xml
-<if test="status != null and status != ''">
-    AND status = #{status}
-</if>
-```
+我们做这个项目，是因为 Go 生态里缺少这样一种工具：既能像 MyBatis 那样用 `<if>`、
+`<where>`、`<foreach>` 写动态 SQL，又能像 sqlc 那样在生成期就发现错误。
 
-当 `status` 是一个值为 `0` 的 `Integer` 时，这个条件会判为假。按照 OGNL 的比较规则，
-空字符串 `''` 和数字 `0` 被视为相等。于是 `AND status = 0` 被悄悄丢掉，查询照常执行，
-只是不再按状态筛选。不会抛异常，日志里也没有警告。如果 `0` 恰好表示"待审核"，调用方
-拿到的就是所有状态的数据。
+本文会介绍 yourbatis 是什么、它解决了什么问题，以及 sqlc 等现有方案的局限，并重点拆解
+它的工作原理。项目目前仍处于实验阶段，代码在
+[github.com/superduck-ai/yourbatis](https://github.com/superduck-ai/yourbatis)。
 
-这个坑在中文技术社区被反复讨论过。它说明了两件事：动态 SQL 非常有用；而把表达式留到
-运行时解释，会让本该在写代码时发现的错误，变成上线之后才暴露的数据问题。
+## 设计来源：MyBatis
 
-yourbatis 是我们针对这个问题做的一次实验。它保留了 MyBatis 的 XML 和动态 SQL 写法，
-同时把表达式、字段映射和参数绑定全部放到 `go generate` 阶段，编译成普通的 Go 代码。
-本文先介绍它借鉴的设计从何而来，以及现有的 Go 工具为什么没有覆盖这个场景。之后会用
-大部分篇幅拆解生成器：它在生成期检查什么、生成什么代码，以及刻意不做什么。
+yourbatis 的 XML 写法来自 MyBatis。MyBatis 的前身是 iBATIS，由 Clinton Begin 在 2001 年
+前后发起，2004 年捐赠给 Apache 软件基金会，2010 年迁出 Apache 并更名为 MyBatis。
 
-## 两个生态，各做对了一半
+与以 Hibernate 为代表的 ORM 不同，MyBatis 不替开发者生成 SQL。它认为 SQL 值得人来认真
+编写，框架只负责把 SQL 的输入和输出映射到对象上，所以它称自己为 SQL Mapper，而不是 ORM。
+这个思路经受住了时间的考验，MyBatis 至今仍是 Java 生态中最常用的数据访问方式之一。
 
-MyBatis 的前身是 iBATIS，由 Clinton Begin 在 2001 年前后发起，2004 年捐赠给 Apache
-软件基金会。2010 年，开发团队把代码迁出 Apache，项目更名为 MyBatis，延续至今。
+不过，MyBatis 的动态 SQL 依赖运行时机制：`<if test>` 里的表达式由 OGNL 在执行时解释，
+结果映射依赖反射。字段名拼错、比较的类型对不上，都要等到那条代码路径真正执行时才会暴露。
 
-iBATIS 押注的观点在当时并不主流。以 Hibernate 为代表的 ORM 主张由框架生成 SQL，让开发者
-只面对对象模型。iBATIS 的看法是：SQL 本身就值得认真编写，框架只需要把 SQL 的输入和
-输出映射到对象上。它把自己称为 SQL Mapper，而不是 ORM。二十多年后，这个判断依然成立：
-MyBatis 至今仍是 Java 生态中最常用的数据访问方式之一，在国内团队里尤其普遍。
+Go 社区的习惯恰好相反：尽量让编译器提前发现错误，少用运行时反射。sqlc 把"SQL 由人编写"
+和生成期检查结合得很好，但它要求每个查询对应一条固定的 SQL，动态 SQL 因此很难表达。
 
-这个设计也有代价。`<if test>` 里的表达式由 OGNL 在运行时解释，结果映射依赖反射。拼错
-的字段名、类型对不上的比较，都要等到那条代码路径真正执行时才会暴露。开头的
-`status != ''` 就是一个例子。
-
-Go 社区恰好站在另一边。Go 开发者习惯让编译器尽早发现错误，也不太喜欢运行时反射。sqlc
-把"SQL 由人编写"和生成期检查结合得很好，但它的前提是每个查询对应一条固定的 SQL，动态
-SQL 因此几乎无从表达。不少从 Java 转到 Go 的团队都有类似的体验：在 MyBatis 里几行
-`<if>` 就能写完的查询，到了 Go 里却找不到顺手的写法。
-
-yourbatis 想把两边做对的部分合在一起：SQL 和动态写法来自 MyBatis，生成期检查和静态
-代码来自 Go。回到开头的例子。在 yourbatis 里，把 `Status` 声明为 `int` 后写出同样的
-条件，`go generate` 会直接拒绝，并指出 XML 中的行列位置：
-
-```text
-./order_mapper.xml:6:60: invalid if test "q.Status != null and q.Status != ''": type int cannot be compared with nil; use a pointer for nullable values or compare against an explicit value
-```
-
-如果"状态可能不传"，就把字段声明为 `*int`，用 `q.Status != nil` 表达。如果只写
-`q.Status != ''`，当前版本的生成器还不会拦截。但它生成的代码是 `q.Status != ""`，过不了
-Go 的类型检查：
-
-```text
-order_mapper.sqlmap.gen.go:39:17: invalid operation: q.Status != "" (mismatched types int and untyped string)
-```
-
-无论哪种写法，这个错误都不会留到运行时。
+yourbatis 想把两者结合起来：沿用 MyBatis 的 SQL 和动态写法，同时像 Go 工具一样在生成期
+完成检查，产出静态代码。
 
 ## 一个看似简单的搜索接口
 
