@@ -207,7 +207,8 @@ yourbatis 在生成期把左列全部算完，剩下的右列就是生成出来�
 
 ```mermaid
 flowchart LR
-    X[Mapper XML] --> P[前端<br/>三层解析]
+    X[Mapper XML] --> DOM[internal/parsing<br/>DOM · XPath · DTD]
+    DOM --> P[前端<br/>记号 · 表达式]
     P --> D[去语法糖<br/>宏展开]
     D --> IR[(IR 树<br/>带源码位置)]
     G[Go package] --> T[go/ast + go/types]
@@ -227,7 +228,7 @@ flowchart LR
 
 | 编译器阶段 | yourbatis 中的实现 |
 | --- | --- |
-| 词法与语法分析 | XML、`#{}`/`${}` 记号、表达式三层解析 |
+| 词法与语法分析 | 自建 DOM 与 XPath 子集（`internal/parsing`），加上 `#{}`/`${}` 记号和表达式解析 |
 | 去语法糖与宏展开 | `<where>`/`<set>` 归约为 `Trim`，`<include>` 就地展开 |
 | 中间表示 | 9 种 IR 节点，每个节点带源码位置 `Span` |
 | 语义分析 | 作用域链、名字解析、类型推断、签名检查 |
@@ -241,37 +242,88 @@ flowchart LR
 
 ### 前端：三层解析
 
-一份 Mapper XML 里嵌套着三种语言，前端要分三层解析。
+一份 Mapper XML 里嵌套着三种语言，前端要分三层解析：XML 结构、SQL 文本里的 `#{}`/`${}` 记号，
+以及 `test` 等属性里的表达式。
 
-**第一层是 XML 本身。** yourbatis 内置了一个与 MyBatis 行为对齐的 XML 解析器
-（`internal/parsing`），包括 XPath 风格的节点访问和 DTD 实体解析。现有的 Mapper XML 可以带着
-`<!DOCTYPE mapper ...>` 直接使用，实体引用和 CDATA 的处理也与 MyBatis 一致。
+#### 第一层：XML，以及一个自建的 DOM
 
-在这一层之上，严格前端（`internal/frontend/xmlmapper`）把每个元素、属性和参数选项都按白名单
+这一层看起来最普通，实际工作量却最大。
+
+MyBatis 读取 XML 依靠的是 JDK：先用 DOM 解析器构建节点树，再用 `javax.xml.xpath` 查询节点。
+所以 MyBatis 对一份 XML 的很多"读法"，其实是 JDK 的行为，包括：
+- 空白怎么裁剪；
+- 实体怎么展开；
+- CDATA 和普通文本是否区分；
+- `DOCTYPE` 指向的 DTD 从哪里加载；
+- 文件编码怎么识别。
+
+Go 标准库的 `encoding/xml` 只提供流式的 token 解码器和基于反射的 `Unmarshal`：没有 DOM，没有
+XPath，也不加载外部 DTD。要让同一份 Mapper XML 在 yourbatis 和 MyBatis 中读出相同的结果，就
+必须把这一层补齐。
+
+因此，`internal/parsing` 是 MyBatis `org.apache.ibatis.parsing` 包的 Go 移植，同时补上了它所依赖
+的那部分 JDK 能力：
+
+- **自建 DOM（`node.go`，约 1200 行）。** 在 `encoding/xml` 的 token 流之上构建节点树，区分
+  元素、属性、文本、CDATA 和实体引用节点，并维护文档顺序。它为每个节点记录行、列和字节偏移，
+  这正是后文 IR 中 `Span` 的来源，也是所有错误信息能精确到 `行:列` 的原因。它还提供 DOM 风格的
+  克隆、导入、插入和替换接口。
+- **编码识别。** 按照 XML 规范检测 BOM、UTF-16/UTF-32 的字节序和 EBCDIC，再结合
+  `<?xml encoding="..."?>` 声明，通过 `golang.org/x/text` 解码。测试覆盖了 Shift_JIS、GBK 等
+  编码，以及声明与实际编码冲突、字节序列非法等异常情况。
+- **DTD 与实体。** `<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" ...>` 会被
+  解析。`mybatis-3-mapper.dtd` 直接内嵌在二进制中，同时兼容旧的 `ibatis-3` 名称，所以生成时
+  **不会访问网络**。DTD 中声明的实体会在属性值和文本中展开。
+- **XPath 子集（`xpath_parser.go`，约 2600 行）。** 支持位置路径、谓词（位置判断和属性比较）、
+  并集、比较、逻辑和算术运算，以及 string/number/boolean 之间的类型转换。对外提供与 MyBatis
+  `XPathParser` 同名的 `EvalString`、`EvalBoolean`、`EvalNodes` 等方法。
+- **`XNode`、`GenericTokenParser`、`PropertyParser`。** 它们与 MyBatis 中的同名类一一对应。
+  `<include>` 内 `<property>` 的 `${}` 替换就由它们完成。连空白裁剪都复刻了 Java 的
+  `String.trim()`：它删除所有码点不超过 U+0020 的字符，与 Go 的 `strings.TrimSpace`（按 Unicode
+  空白判断）结果并不相同。
+
+"与 MyBatis 一致"需要能够验证。这个包有 110 个测试，部分 fixture 直接取自 MyBatis 的测试资源
+（`nodelet_test.xml`）。很多测试名本身就是断言，例如
+`TestXPathParserShouldMatchJavaReaderAndInputStreamEncodingSemantics`、
+`TestXPathParserShouldTreatNumericPredicateExpressionsAsPositionTestsLikeJDKXPath`、
+`TestGenericTokenParserShouldParseLargeInputsLikeMyBatisIssue760`。
+
+需要如实说明的是：目前生成器只用到了这一层的一小部分。前端调用 XPath 只做一件事，就是定位
+`/mapper` 根节点；之后都是沿着 DOM 遍历子节点，读取属性、文本和源码位置。完整的 XPath 子集和
+DOM 修改接口，是为了与 MyBatis 的 `parsing` 包在 API 和行为上保持一致而移植的，目前主要由这一层
+自己的测试使用。我们选择把它作为一个独立的、测试完整的基础层保留下来，而不是只裁出生成器眼下
+需要的部分。这样，"XML 应该怎么读"始终有一个明确的参照物，即 MyBatis 加 JDK。前端以后需要
+更多能力时，也不必重新推敲这些边界行为。
+
+在这一层之上，严格前端（`internal/frontend/xmlmapper`）把每个元素、属性和参数选项都当作白名单
 处理。MyBatis 对未知属性通常比较宽容，yourbatis 则直接拒绝：
 
 ```text
 ./user_mapper.xml:23:65: <select> does not support attribute "useCache" in the Go-first XML dialect
 ```
 
-被静默忽略的 `useCache="true"` 是一种虚假的承诺：读 XML 的人以为开启了缓存，实际上没有。我们
-宁愿让生成失败。
+被静默忽略的 `useCache="true"` 是一种虚假的承诺：读 XML 的人以为开启了缓存，实际上并没有。
+我们宁愿让生成失败。
 
-**第二层是 SQL 文本中的记号。** 前端用一个专门的扫描器在文本里查找 `#{` 和 `${`。扫描时会跟踪
-字符串字面量和嵌套括号，确保 `#{user.Name}` 的结束位置判断正确。然后切分出参数路径和选项，例如
-`#{email,sensitive=true}`。记号内部不允许出现注释，未知的参数选项同样会被拒绝。
+#### 第二层：SQL 文本中的记号
 
-**第三层是表达式。** `test`、`value`、`collection` 属性里的表达式有两种输入模式：
+前端用一个专门的扫描器在文本里查找 `#{` 和 `${`。扫描时会跟踪字符串字面量和嵌套括号，确保
+`#{user.Name}` 的结束位置判断正确。然后切分出参数路径和选项，例如 `#{email,sensitive=true}`。
+记号内部不允许出现注释，未知的参数选项同样会被拒绝。
+
+#### 第三层：表达式
+
+`test`、`value`、`collection` 属性里的表达式有两种输入模式：
 
 - **原生 Go 子集。** 如果表达式本身就是合法的 Go 表达式，就直接交给 `go/parser.ParseExpr`
-  解析，再检查其中的函数调用是否在允许范围内。新 Mapper 推荐这种写法，例如
+  解析，再检查其中的函数调用是否在允许的范围内。新 Mapper 推荐使用这种写法，例如
   `params.Status != nil && len(params.IDs) > 0`。
-- **MyBatis 兼容子集。** 当表达式里出现 `and`、`null`、`.size()`、`in {...}` 这类 MyBatis 写法
-  时，交给一个手写的**递归下降解析器**。它按运算符优先级分层，每一层对应一个解析函数：三元
-  表达式 → `or` → `and` → 比较（含 `in`/`not in`）→ 加减 → 乘除 → 一元运算 → 后缀（字段访问、
-  方法调用、下标）→ 基本项。
+- **MyBatis 兼容子集。** 当表达式中出现 `and`、`null`、`.size()`、`in {...}` 这类 MyBatis
+  写法时，交给一个手写的**递归下降解析器**。它按运算符优先级逐层解析，每一层对应一个函数：
+  三元表达式 → `or` → `and` → 比较（含 `in`/`not in`）→ 加减 → 乘除 → 一元运算 → 后缀（字段
+  访问、方法调用、下标）→ 基本项。
 
-两种模式的分工很明确：Go 写法是主要语言，兼容子集只为迁移已有的 MyBatis XML 而存在。
+两种模式分工明确：Go 写法是主要语言，兼容子集只为迁移已有的 MyBatis XML 而存在。
 
 ### 去语法糖与 IR
 
