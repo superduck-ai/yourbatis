@@ -1,40 +1,62 @@
 # 在 Go 里写动态 SQL，同时保留编译期的确定性
 
-> yourbatis 是一个实验性的 Go SQL Mapper：你用 Go interface 描述数据访问 API，
-> 用 MyBatis 风格的 XML 编写 SQL，再由生成器把两者编译成普通的、可静态检查的
-> Go 代码。本文介绍它要解决的问题、现有方案的局限，并重点拆解它的工作原理。
+在 Go 里访问数据库，开发者常常要做一个取舍：想让 SQL 保持原样、在上线前发现错误，
+就很难写动态查询；想要灵活的动态查询，就得把 SQL 交给运行时拼接、反射或方法链。
 
----
+yourbatis 是我们针对这个取舍做的一次实验。你用 Go interface 定义数据访问 API，用
+MyBatis 风格的 XML 编写 SQL，包括 `<if>`、`<where>`、`<foreach>` 这样的动态片段。然后
+在 `go generate` 阶段，生成器把两者编译成普通的 Go 代码。
 
-## 一个常见的接口
+本文先说明这个取舍从何而来，以及 sqlc 等现有方案为什么没有完全消除它。接着用大部分
+篇幅拆解 yourbatis 的生成器：它在生成期检查什么、生成什么代码，以及刻意不做什么。
 
-几乎每个后端服务都有这样一个接口：按关键字搜索用户。关键字可能为空，状态筛选是
-可选的，调用方可能传入一组 ID，结果还要分页。
+## 一个看似简单的搜索接口
+
+问题往往始于一个普通的需求：按条件搜索用户。
 
 ```go
 type SearchUserParams struct {
-    Keyword        string
-    Status         *UserStatus
-    IDs            []int64
+    Keyword        string      // 为空表示不按名字筛选
+    Status         *UserStatus // nil 表示不按状态筛选
+    IDs            []int64     // 为空表示不限定 ID
     IncludeDeleted bool
     Limit          int
     Offset         int
 }
 ```
 
-这个需求本身很朴素，但在 Go 里实现它，通常要在下面几条路里选一条，而每条路都要
-放弃一些东西：
+每个筛选条件都是可选的，所以同一个方法在不同调用下要发出不同的 SQL：
 
-- **手写 `strings.Builder` 拼接。** SQL 和控制流混在一起；`$1`、`$2` 的编号要手动
-  维护；`WHERE` 后面多出的 `AND` 要自己处理。注入风险靠代码审查兜底。
-- **改用 query builder。** 拼接问题解决了，但 SQL 变成了一串方法调用。DBA 审查的
-  不再是 SQL，而是生成 SQL 的代码。
-- **用 sqlc，然后在 SQL 里绕开动态性。** 写成
-  `WHERE (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status))`，或者给每种
-  筛选组合各写一条查询。
+```sql
+-- 只传分页参数（默认排除已删除用户）
+SELECT id, name, email, status, created_at FROM users
+WHERE status != 'deleted'
+ORDER BY created_at DESC LIMIT $1 OFFSET $2
 
-我们希望有第四条路：**SQL 仍然是 SQL，动态部分有清晰的声明式写法，而所有能在生成期
-发现的错误都在生成期发现。** yourbatis 就是对这条路的一次尝试。
+-- 传入关键字、状态和两个 ID
+SELECT id, name, email, status, created_at FROM users
+WHERE name LIKE $1 AND status = $2 AND id IN ($3, $4)
+ORDER BY created_at DESC LIMIT $5 OFFSET $6
+```
+
+条件个数、占位符编号、`WHERE` 后面的第一个 `AND`、`IN` 列表的长度，都会随参数变化。
+这些细节并不难，但每一个都可能出错，而且通常要到某个特定的参数组合真正执行时才会
+暴露出来。
+
+在 Go 里实现它，常见的三种做法各有代价：
+
+- **手写拼接。** SQL 依然可读，也足够灵活，但 `$n` 编号、多余的 `AND` 和注入防护都
+  靠人来保证。错误只能在运行时发现。
+- **改用 query builder 或 ORM。** 拼接问题交给了库，但 SQL 变成了方法调用。代码审查
+  时看到的不再是将要执行的 SQL，而是生成 SQL 的 Go 代码。
+- **用 sqlc。** SQL 可读，并且能在生成期检查，但每个查询只能对应一条固定的 SQL。
+  可选条件只能写成 `(sqlc.narg(status) IS NULL OR status = sqlc.narg(status))` 这样的
+  形式，或者给每种组合各写一条查询。
+
+换句话说，**SQL 可读、能表达动态逻辑、错误在执行前暴露**，这三点在现有工具里很难同时
+做到。yourbatis 想把三者都做到：SQL 仍然是 SQL，动态部分用声明式元素表达，表达式、
+字段和类型错误在 `go generate` 阶段就报出来。为此它也接受了另一些约束，比如投影必须
+是静态的，也不对照数据库 schema 做检查。后文会如实说明这些约束。
 
 ## yourbatis 是什么
 
@@ -412,7 +434,7 @@ func buildUserMapperSearch(dialect yourbatis.Dialect, params SearchUserParams) y
   每个子 builder 立即生成 `$1`，嵌套的 `where`/`foreach` 就会各自从 `$1` 开始编号。延迟
   到最后统一渲染，PostgreSQL 的 `$n` 就能正确连续，SQLite 和 MySQL 则统一使用 `?`。
 
-用两组参数调用这个函数，得到的 SQL 如下（空白已整理）：
+用两组参数调用这个函数，得到的正是文章开头那两条 SQL（空白已整理）：
 
 ```sql
 -- Keyword="a%", Status=active, IDs=[3, -1, 7], Limit=20
