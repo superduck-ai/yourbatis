@@ -167,133 +167,204 @@ yourbatis 想做的，是把 MyBatis 的动态 SQL 表达力和 sqlc 的生成�
 
 ## yourbatis 如何工作
 
-`sqlmapgen` 是一个编译器：前端读取 XML 和 Go 源码，中间构造并检查一份中间表示
-（IR），后端输出 Go 代码。运行时库只是一层很薄的 `database/sql` 封装。
+先换个角度看 Mapper XML：它其实是一段**程序**。输入是方法参数，输出是一条 SQL 加一组参数
+值。`<if>` 是条件分支，`<foreach>` 是循环，`<bind>` 是变量声明，`test` 属性里写的是表达式。
+
+MyBatis 用**解释器**运行这段程序：每次调用 Mapper 方法，它都要遍历一遍 XML 节点树，用 OGNL
+求值表达式，用反射读取参数字段，再用反射把结果写回对象。yourbatis 走的是另一条路：它是一个
+**编译器**，在 `go generate` 时把这段程序翻译成 Go，运行时只执行翻译后的结果。
+
+解释器和编译器之间最大的差别，在于错误何时暴露。解释器只能在执行到某条路径时发现那条路径上的
+问题，编译器则可以在执行之前检查整段程序。本节按编译器的结构来拆解 `sqlmapgen`。它是一个小
+编译器：没有优化 pass，IR 是一棵树而不是 SSA，类型信息有一部分直接借助 `go/types` 获得。但
+前端、语义分析、降级、代码生成这些环节都齐全，而且每一环都对应着一类可以提前发现的错误。
+
+### 两个阶段：哪些事在生成期确定
+
+理解 yourbatis 的设计，关键是一个编译原理里的概念：**分阶段**（staging，也称绑定时间分析）。
+程序里的每一个量，要么在生成期就能确定，要么必须等到运行期才知道：
+
+| 生成期确定（静态） | 运行期确定（动态） |
+| --- | --- |
+| SQL 的结构和文本片段 | 参数的具体值 |
+| 每个表达式的类型 | `<if>` 条件的真假 |
+| 名字解析到哪个参数或字段 | `<foreach>` 循环的次数 |
+| 投影列以及列到字段的映射（即 scanner） | 最终 SQL 中占位符的个数和编号 |
+| 目标方言是否支持某种结果模式 | |
+
+yourbatis 在生成期把左列全部算完，剩下的右列就是生成出来的 SQL 构建函数。用部分求值
+（partial evaluation）的术语来说，构建函数是 XML 程序针对静态信息特化之后的**剩余程序**
+（residual program）。
+
+后文的许多限制，都可以用这张表推导出来：
+
+- 投影必须是静态的，因为 scanner 在左列：它在生成期就要确定每一列写进哪个字段。
+- `${}` 只接受特定类型，因为"这段文本会被如何拼进 SQL"需要在生成期确定，而它取决于表达式的
+  类型。
+- 不支持完整的 OGNL，因为 OGNL 的很多语义依赖运行时类型，没法挪到左列。
+
+### 流水线总览
 
 ```mermaid
 flowchart LR
-    X[Mapper XML] --> P[XML 解析器<br/>internal/parsing]
-    P --> F[严格前端<br/>internal/frontend/xmlmapper]
-    F --> IR[(IR<br/>internal/ir)]
-    G[Go package<br/>interface + struct] --> L[包加载<br/>go/ast + go/types]
-    IR --> K[链接与检查<br/>internal/generator]
-    L --> K
-    K --> E[表达式编译]
-    K --> S[投影分析 / scanner 计划]
-    K --> D[方言能力检查]
-    E --> O[代码生成 + gofmt]
-    S --> O
-    D --> O
-    O --> GEN[*.sqlmap.gen.go]
-    GEN --> RT[运行时<br/>Builder · Executor]
+    X[Mapper XML] --> P[前端<br/>三层解析]
+    P --> D[去语法糖<br/>宏展开]
+    D --> IR[(IR 树<br/>带源码位置)]
+    G[Go package] --> T[go/ast + go/types]
+    IR --> S[语义分析<br/>名字 · 作用域 · 类型]
+    T --> S
+    S --> L[降级<br/>MyBatis 表达式 → go/ast]
+    S --> A[静态分析<br/>投影 → scanner]
+    S --> C[目标检查<br/>方言能力]
+    L --> E[代码生成 + gofmt]
+    A --> E
+    C --> E
+    E --> GEN[*.sqlmap.gen.go]
+    GEN --> RT[运行时<br/>占位符回填 · 执行]
 ```
 
-下面按流水线的顺序逐一拆解。
+各阶段与 yourbatis 实现的对应关系：
 
-### 第一步：把 XML 解析成 IR
+| 编译器阶段 | yourbatis 中的实现 |
+| --- | --- |
+| 词法与语法分析 | XML、`#{}`/`${}` 记号、表达式三层解析 |
+| 去语法糖与宏展开 | `<where>`/`<set>` 归约为 `Trim`，`<include>` 就地展开 |
+| 中间表示 | 9 种 IR 节点，每个节点带源码位置 `Span` |
+| 语义分析 | 作用域链、名字解析、类型推断、签名检查 |
+| 降级 | MyBatis 兼容表达式转换为 `go/ast` |
+| 静态分析 | 从 SQL 文本中提取投影列，生成 scanner 计划 |
+| 目标检查 | `-dialect` 决定可用的结果模式 |
+| 代码生成 | 遍历 IR 输出 Go 源码，经 `go/format` 格式化 |
+| 回填 | 运行时在 `Build()` 中统一为占位符编号 |
 
-yourbatis 内置了一个 MyBatis XML 解析器（`internal/parsing`），它对齐了 MyBatis 的
-XPath 解析、`#{}`/`${}` 记号解析和 DTD 实体解析行为。现有的 Mapper XML 可以带着
-DOCTYPE 直接使用，实体引用和 CDATA 的处理方式也与 MyBatis 一致。
+下面逐个展开。
 
-解析结果会交给一个**严格前端**（`internal/frontend/xmlmapper`）。MyBatis 对未知属性
-通常比较宽容；yourbatis 则把每个元素、属性和参数选项都当作白名单处理：
+### 前端：三层解析
+
+一份 Mapper XML 里嵌套着三种语言，前端要分三层解析。
+
+**第一层是 XML 本身。** yourbatis 内置了一个与 MyBatis 行为对齐的 XML 解析器
+（`internal/parsing`），包括 XPath 风格的节点访问和 DTD 实体解析。现有的 Mapper XML 可以带着
+`<!DOCTYPE mapper ...>` 直接使用，实体引用和 CDATA 的处理也与 MyBatis 一致。
+
+在这一层之上，严格前端（`internal/frontend/xmlmapper`）把每个元素、属性和参数选项都按白名单
+处理。MyBatis 对未知属性通常比较宽容，yourbatis 则直接拒绝：
 
 ```text
 ./user_mapper.xml:23:65: <select> does not support attribute "useCache" in the Go-first XML dialect
 ```
 
-这种严格性是刻意的。被静默忽略的 `useCache="true"` 是一种虚假的承诺：读 XML 的人以为
-开启了缓存，实际上并没有。我们宁可让生成失败。
+被静默忽略的 `useCache="true"` 是一种虚假的承诺：读 XML 的人以为开启了缓存，实际上没有。我们
+宁愿让生成失败。
 
-前端的产物是一棵很小的 IR 树，节点只有 `Text`、`Parameter`（`#{}`）、
-`TextExpression`（`${}`）、`If`、`Choose`、`Foreach`、`Trim`、`Bind` 和
-`SQLNodeBoundary` 这几种。`<where>` 和 `<set>` 都被归约成带特定前后缀规则的 `Trim`，
-`<include>` 在这一步就地展开。**每个节点都带有 `Span`（文件、行、列）**，所以后续任何
-阶段报错都能精确指回 XML 中的位置。本文引用的所有错误信息都以
-`./user_mapper.xml:行:列` 开头，原因就在这里。
+**第二层是 SQL 文本中的记号。** 前端用一个专门的扫描器在文本里查找 `#{` 和 `${`。扫描时会跟踪
+字符串字面量和嵌套括号，确保 `#{user.Name}` 的结束位置判断正确。然后切分出参数路径和选项，例如
+`#{email,sensitive=true}`。记号内部不允许出现注释，未知的参数选项同样会被拒绝。
 
-`SQLNodeBoundary` 值得单独一提。MyBatis 在拼接动态 SQL 时，每次 `appendSql` 之间
-会插入一个空格。yourbatis 在 IR 中显式记录这些边界，让生成的 SQL 在空白处理上与
-MyBatis 保持一致。这样，从 MyBatis 迁移过来的测试可以直接比较 SQL 文本。
+**第三层是表达式。** `test`、`value`、`collection` 属性里的表达式有两种输入模式：
 
-### 第二步：读取 Go 包
+- **原生 Go 子集。** 如果表达式本身就是合法的 Go 表达式，就直接交给 `go/parser.ParseExpr`
+  解析，再检查其中的函数调用是否在允许范围内。新 Mapper 推荐这种写法，例如
+  `params.Status != nil && len(params.IDs) > 0`。
+- **MyBatis 兼容子集。** 当表达式里出现 `and`、`null`、`.size()`、`in {...}` 这类 MyBatis 写法
+  时，交给一个手写的**递归下降解析器**。它按运算符优先级分层，每一层对应一个解析函数：三元
+  表达式 → `or` → `and` → 比较（含 `in`/`not in`）→ 加减 → 乘除 → 一元运算 → 后缀（字段访问、
+  方法调用、下标）→ 基本项。
 
-生成器使用 `go/parser` 和 `golang.org/x/tools/go/packages` 加载目标包，提取三类信息：
+两种模式的分工很明确：Go 写法是主要语言，兼容子集只为迁移已有的 MyBatis XML 而存在。
 
-- Mapper interface 中每个方法的参数名、参数类型和返回类型；
-- 包内 struct 的导出字段及其 `db`/`sqlmap` tag；
-- 用于表达式类型推断的类型信息。
+### 去语法糖与 IR
 
-加载时会跳过已有的 `*.sqlmap.gen.go`，所以生成结果永远不依赖上一次生成的产物。即使
-生成文件已损坏或已过期，也可以重新生成。
+前端的输出是一棵很小的 IR 树（`internal/ir`）。MyBatis 的十几种动态元素，最后只剩 9 种节点：
+`Text`、`Parameter`（`#{}`）、`TextExpression`（`${}`）、`If`、`Choose`、`Foreach`、`Trim`、
+`Bind` 和 `SQLNodeBoundary`。
 
-### 第三步：链接方法与 statement，确定结果语义
+元素变少是因为前端做了两件事。
 
-每个 interface 方法必须在 XML 中有一个同名 statement，namespace 必须与 interface
-名称一致。链接时，生成器根据**函数签名**推断结果模式：
+**去语法糖。** `<where>` 和 `<set>` 并不是独立的概念，它们只是带特定参数的 `<trim>`：
 
-| 签名 | 推断模式 | 0 行 | 1 行 | 多行 |
-| --- | --- | --- | --- | --- |
-| `(T, error)` | one | `sql.ErrNoRows` | `T` | `ErrTooManyRows` |
-| `(T, bool, error)` | optional | `zero, false, nil` | `T, true, nil` | `ErrTooManyRows` |
-| `([]T, error)` | many | 空 slice | slice | slice |
-| `(..., yield func(T) error) error` | each | `nil` | 逐行回调 | 逐行回调 |
+| 元素 | 等价的 `Trim` |
+| --- | --- |
+| `<where>` | prefix `WHERE `，去掉开头的 `AND `/`OR ` |
+| `<set>` | prefix `SET `，去掉开头和结尾多余的 `,` |
 
-INSERT/UPDATE/DELETE 也是类似的：只返回 `error` 时推断为 `exec`，返回
-`(int64, error)` 时推断为 `rows`（受影响行数）。`returning` 和 `lastid` 两种模式必须在
-XML 中显式写出，原因见下文的方言检查。
+归约之后，后续阶段只需要处理一种节点。
 
-这里的设计选择是：**签名就是契约。** 调用方读 interface 就能知道"查不到"是一个错误
-还是一个正常分支，不必翻看 XML。签名不合法时，生成直接失败：
+**宏展开。** `<include refid="userColumns"/>` 在前端就被替换成对应 `<sql>` 片段的内容，类似于
+C 预处理器展开宏。片段注册表用一个"只允许插入一次"的 map 实现，重复定义同一个 `id` 会直接
+报错，而不是让后一个定义覆盖前一个。
+
+IR 的每个节点都带有 `Span`，记录文件、行和列。这相当于编译器里的源码位置信息：后面任何阶段
+报错，都能精确指回 XML 中的某一行某一列。本文引用的所有错误信息都以 `./user_mapper.xml:行:列`
+开头，原因就在这里。
+
+`SQLNodeBoundary` 是唯一一个不对应 XML 元素的节点。MyBatis 在拼接动态 SQL 时，每次调用
+`appendSql` 都会插入一个空格。yourbatis 在 IR 里显式记录这些边界，让生成的 SQL 在空白处理上与
+MyBatis 完全一致。这样，从 MyBatis 迁移过来的测试可以直接逐字比较 SQL 文本。
+
+### 语义分析：名字、作用域与类型
+
+语法正确不代表程序有意义。语义分析要回答三个问题：每个名字指向什么？它的类型是什么？这样
+使用是否合法？
+
+#### 符号从哪里来
+
+生成器用 `go/parser` 和 `golang.org/x/tools/go/packages` 加载目标包，读取 Mapper interface 的
+方法签名、struct 的导出字段及 `db` tag，以及 `go/types` 提供的类型信息。加载时会跳过已有的
+`*.sqlmap.gen.go`，所以生成结果不依赖上一次的产物，即使旧的生成文件已经损坏也能重新生成。
+
+表达式里可以引用的名字有这几类：
+
+- 方法参数（例如 `params`、`id`）；
+- 只有一个参数时的兼容别名 `_parameter`；
+- 来自 `WithDatabaseID` 的 `_databaseId`；
+- `<bind>` 声明的变量；
+- `<foreach>` 的 `item` 和 `index`。
+
+#### 作用域链
+
+作用域的实现和大多数语言的编译器一样，是一条带父指针的链：方法参数位于最外层，每个
+`<foreach>` 会打开一层新的作用域，在里面声明 `item` 和 `index`。查找名字时沿着链从内向外找。
+
+这让两类错误可以在生成期发现。第一类是在循环外引用循环变量：
 
 ```text
-./user_mapper.xml:30:53: UserMapper.FindByEmail: optional select methods must return (T, bool, error)
+./user_mapper.xml:77:31: invalid if test "userID > 0": unknown identifier "userID"
 ```
 
-### 第四步：把表达式编译成 Go
+第二类是在同一作用域里重复声明：
 
-`<if test>`、`<when test>`、`<bind value>` 和 `<foreach collection>` 里的表达式，是
-MyBatis 依赖 OGNL 运行时解释的部分，也是 yourbatis 与运行时方案差异最大的地方。
+```text
+./user_mapper.xml:53:107: bind name "keyword" is already declared in this scope
+```
 
-yourbatis 不实现 OGNL。表达式编译器有两种输入模式：
+在 MyBatis 里，这两种情况都要等到运行时才会显现：前者在表达式求值时读到一个不存在的变量，
+后者是后一次 `bind` 静默覆盖前一次。
 
-- **原生 Go 子集**（新 Mapper 推荐）：`params.Status != nil && len(params.IDs) > 0`。
-  表达式直接作为 Go 表达式解析，并限制可调用的函数。
-- **MyBatis 兼容子集**（迁移用）：识别 `null`、`and`/`or`/`not`、`.size()`、
-  `.isEmpty()`、`in`/`not in`、惰性三元表达式等常见写法，先解析成独立的 AST，再
-  "降级"为 `go/ast`。例如 MyBatis 测试中的这个条件：
+#### 类型推断与类型检查
 
-  ```xml
-  <if test="value != null and *value not in {''}">
-  ```
+作用域里存放的不只是名字，还有类型。`<bind name="keyword" value="params.Keyword"/>` 中的
+`keyword` 没有显式写出类型，生成器从右侧表达式推断出它是 `string`。后续对 `keyword` 的每一次
+使用，都会按 `string` 来检查：
 
-  会被编译成：
+```text
+./user_mapper.xml:54:43: invalid if test "keyword != nil": type string cannot be compared with nil; use a pointer for nullable values or compare against an explicit value
+```
 
-  ```go
-  if value != nil && *value != "" {
-  ```
-
-无论输入是哪种模式，编译结果都会在一个**作用域**里做名字解析和类型推断。作用域的
-来源是方法参数、`<bind>` 声明，以及 `<foreach>` 的 `item`/`index`，嵌套的 `foreach`
-会形成嵌套作用域。正因为有类型信息，下面这些错误都会在生成期被发现：
+字段访问同样会经过检查：
 
 ```text
 ./user_mapper.xml:52:44: invalid if test "params.Keywrd != ''": type SearchUserParams has no exported field "Keywrd"
 ```
 
-```text
-./user_mapper.xml:58:52: invalid when test "params.Keyword != nil": type string cannot be compared with nil; use a pointer for nullable values or compare against an explicit value
-```
+`!= nil` 这条检查在实践中特别有用。在 OGNL 里，对一个 `String` 判断 `!= null` 几乎总是为真，
+条件分支形同虚设。在 Go 里，"可能不存在"需要用指针或其他可为 nil 的类型来表达，生成器把这条
+规则搬到了 XML 里。
 
-第二个错误在运行时方案里尤其隐蔽：对一个 `string` 判断 `!= null`，在 OGNL 中永远为
-真，条件分支形同虚设。在 yourbatis 里，这直接是一个生成错误，并附带修复建议：用指针
-表达"可能为空"。
+#### `${}`：由类型决定能生成什么
 
-#### `${}`：用类型系统约束文本插值
-
-`#{}` 总是生成 driver 参数。`${}` 则是把值直接写进 SQL 文本，这是 SQL 注入最常见的
-入口。yourbatis 根据表达式的 Go 类型决定 `${}` 可以生成什么：
+`#{}` 总是生成驱动参数。`${}` 则是把值直接写进 SQL 文本，这是 SQL 注入最常见的入口。语义分析
+根据表达式的类型，决定 `${}` 可以生成什么代码：
 
 | 表达式类型 | 生成代码 |
 | --- | --- |
@@ -307,14 +378,87 @@ yourbatis 不实现 OGNL。表达式编译器有两种输入模式：
 ./user_mapper.xml:107:2: unsafe text expression "column": plain string interpolation is disabled; use #{} binding, yourbatis.Identifier, or yourbatis.Fragment
 ```
 
-想要动态排序字段，就把参数声明成 `yourbatis.Identifier`。调用方必须经过
-`yourbatis.NewIdentifier` 的校验才能构造它。安全性不再依赖"记得别把用户输入传进
-来"，而是由类型签名来保证。
+这是类型系统的典型用法：用类型来区分"可信"和"不可信"的值。要动态指定排序字段，就把参数声明
+为 `yourbatis.Identifier`，调用方必须经过 `NewIdentifier` 的校验才能构造它。安全性因此不再依赖
+"记得别把用户输入传进来"，而是由函数签名保证。
 
-### 第五步：分析投影，生成静态 scanner
+#### 函数签名也是类型
 
-运行时方案通常这样映射结果：拿到 `rows.Columns()`，再用反射按列名找字段。yourbatis
-在生成期就确定每一列对应哪个字段，并为每个方法生成一个固定的 scanner：
+每个 interface 方法要和 XML 中同名的 statement 链接起来，这一步类似于编译器把声明和定义对应
+起来。链接时，生成器从**函数签名**推断结果语义：
+
+| 签名 | 推断模式 | 0 行 | 1 行 | 多行 |
+| --- | --- | --- | --- | --- |
+| `(T, error)` | one | `sql.ErrNoRows` | `T` | `ErrTooManyRows` |
+| `(T, bool, error)` | optional | `zero, false, nil` | `T, true, nil` | `ErrTooManyRows` |
+| `([]T, error)` | many | 空 slice | slice | slice |
+| `(..., yield func(T) error) error` | each | `nil` | 逐行回调 | 逐行回调 |
+
+INSERT/UPDATE/DELETE 只返回 `error` 时推断为 `exec`，返回 `(int64, error)` 时推断为 `rows`。
+`returning` 和 `lastid` 必须在 XML 里显式声明，原因见后文的目标检查。签名不合法时，生成直接
+失败：
+
+```text
+./user_mapper.xml:30:53: UserMapper.FindByEmail: optional select methods must return (T, bool, error)
+```
+
+调用方只读 interface，就能知道"查不到"是一个错误还是一个正常分支。
+
+#### 检查的边界：两层类型检查
+
+需要如实说明：生成器的类型检查并不完整。它覆盖了名字解析、字段存在性、nil 可比较性、
+`${}` 的类型分类和签名形状，但没有对每个二元运算做完整的类型检查。比如，对一个 `int` 字段写
+`q.Status != ''`，生成器目前不会拦截，而是原样生成 `q.Status != ""`。
+
+这个错误最终由 Go 编译器发现：
+
+```text
+order_mapper.sqlmap.gen.go:39:17: invalid operation: q.Status != "" (mismatched types int and untyped string)
+```
+
+因此，yourbatis 的类型检查实际上分两层：生成器负责它最了解的部分，并给出指向 XML 的错误位置；
+Go 编译器在 `go build` 时兜底，保证生成的代码类型正确。代价是第二层报错指向的是生成文件，
+而不是 XML。把更多检查前移到第一层，是我们接下来的改进方向。
+
+### 降级：从 MyBatis 表达式到 `go/ast`
+
+兼容模式解析出的 MyBatis 表达式 AST，需要**降级**（lowering）成 Go 的 `go/ast`，才能进入代码
+生成。降级就是把源语言的高层构造，改写成目标语言中语义等价的低层构造：
+
+| MyBatis 写法 | 降级后的 Go |
+| --- | --- |
+| `a and b`、`a or b`、`not a` | `a && b`、`a \|\| b`、`!a` |
+| `x == null` | `x == nil` |
+| `list.size()`、`list.isEmpty()` | `len(list)`、`len(list) == 0` |
+| `name in {'Bob', 'Steve'}` | `name == "Bob" \|\| name == "Steve"` |
+| `v not in {''}` | `v != ""` |
+| `c ? a : b` | `func() T { if c { return a }; return b }()` |
+
+两点值得一提：
+
+- Go 没有三元运算符，所以 `c ? a : b` 被降级成一个立即调用的函数字面量。这样保留了 MyBatis
+  三元表达式的惰性：只有被选中的分支才会求值。降级时要求两个分支的类型在生成期就能确定，并且
+  彼此相同，否则报错。
+- 降级完成后，生成器会把结果打印成源码，再用 `go/parser` 解析一遍。这是一道廉价的自检，确保
+  降级的结果确实是合法的 Go 表达式。
+
+MyBatis 自身测试里的这个条件：
+
+```xml
+<if test="value != null and *value not in {''}">
+```
+
+降级后得到：
+
+```go
+if value != nil && *value != "" {
+```
+
+### 静态分析：从 SQL 文本中提取投影
+
+运行时方案通常这样映射结果：先调用 `rows.Columns()`，再用反射按列名查找字段。按照分阶段的
+思路，"哪一列写进哪个字段"属于静态信息，yourbatis 要在生成期就把它算出来，生成一个固定的
+scanner：
 
 ```go
 func scanUserMapperGetByID(row yourbatis.Scanner) (User, error) {
@@ -330,15 +474,20 @@ func scanUserMapperGetByID(row yourbatis.Scanner) (User, error) {
 }
 ```
 
-要做到这一点，生成器需要从 SQL 文本中可靠地找出投影列：
+为此，生成器需要从 SQL 文本里找出投影列。它没有实现完整的 SQL 解析器，而是用一个轻量的扫描器
+完成这件事：
 
-1. 在 SQL 中定位**顶层**的 `SELECT ... FROM` 或 `RETURNING` 子句，跳过字符串字面量、
-   注释和括号内的子查询；
+1. 定位**顶层**的 `SELECT ... FROM` 或 `RETURNING` 子句，扫描时跳过字符串字面量、注释和括号内
+   的子查询；
 2. 按顶层逗号切分投影项；
-3. 每一项必须是简单列引用（`name`、`u.name`）或带显式 `AS` 的表达式；
-4. 通过 `resultMap`、`db`/`sqlmap` tag 或字段名，把列名映射到结构体字段。
+3. 每一项必须是简单的列引用（`name`、`u.name`），或者带显式 `AS` 别名的表达式；
+4. 通过 `resultMap`、`db`/`sqlmap` tag 或字段名，把列映射到结构体字段。
 
-这套规则带来几个刻意的限制，每个限制都对应一条清晰的错误信息：
+不做完整的 SQL 解析是刻意的选择。不同数据库的 SQL 方言差异很大，一个完整的 SQL 解析器要么只
+覆盖公共子集，要么不断追赶各家的新语法。我们只需要知道"有哪几列、叫什么名字"，扫描器足以回答
+这个问题，而且让 SQL 的其余部分保持不透明：生成器不关心，也不会误解 `FROM` 之后写了什么。
+
+这一步的规则都对应着清晰的错误信息：
 
 ```text
 ./user_mapper.xml:23:49: SELECT * cannot be statically mapped; list columns explicitly
@@ -352,13 +501,25 @@ func scanUserMapperGetByID(row yourbatis.Scanner) (User, error) {
 ./user_mapper.xml:40:31: dynamic <if> cannot change the SELECT projection; generated scanners require a fixed column list
 ```
 
-最后一条体现了一个核心取舍：**`WHERE` 可以是动态的，投影必须是静态的。** 投影一旦
-随参数变化，scanner 就无法在生成期确定，只能退回运行时反射。我们选择不支持这种写法。
+最后一条直接来自分阶段的划分：**`WHERE` 可以是动态的，投影必须是静态的。** 如果投影随参数
+变化，scanner 就无法在生成期确定，只能退回到运行时反射，而这正是 yourbatis 想避免的。
 
-### 第六步：生成 SQL 构建函数
+### 代码生成：遍历 IR，输出 Go
 
-有了编译好的表达式，IR 树可以几乎逐节点地翻译成 Go 代码。以开头的搜索接口为例，
-XML 写成：
+经过前面的阶段，IR 树上的每个表达式都已经降级成 Go，每个名字都已经解析完毕。代码生成只需要
+遍历这棵树，按节点类型输出 Go 语句：
+
+| IR 节点 | 生成的 Go |
+| --- | --- |
+| `Text` | `builder.Text("...")` |
+| `Parameter` | `builder.Arg("name", value)` |
+| `If` | `if cond { ... }` |
+| `Choose` | `if ... else if ... else ...` |
+| `Bind` | 局部变量声明 |
+| `Foreach` | `for index, item := range collection { ... }` |
+| `Trim` | 子 builder 加 `AppendTrimmed` |
+
+以开头的搜索接口为例，XML 写成：
 
 ```xml
 <select id="Search" resultType="User">
@@ -389,7 +550,7 @@ XML 写成：
 </select>
 ```
 
-生成的构建函数如下（节选，省略了纯空白的 `Text` 调用）：
+生成的构建函数如下（节选，省略了纯空白的 `Text` 调用和 `BeginSQLNode` 标记）：
 
 ```go
 func buildUserMapperSearch(dialect yourbatis.Dialect, params SearchUserParams) yourbatis.BoundSQL {
@@ -432,19 +593,30 @@ func buildUserMapperSearch(dialect yourbatis.Dialect, params SearchUserParams) y
 }
 ```
 
-有几点值得注意：
+对照前面的分阶段表，可以看到这段代码里只剩下右列的内容：参数值、条件真假、循环次数。表达式
+已经是类型确定的 Go 代码，`<include>` 已经展开，`<where>` 已经变成 `AppendTrimmed` 调用。
+`foreach` 的 collection 甚至直接调用了包内的 Go 函数 `filterPositiveUserIDs`，编辑器跳转、
+重构和 `go vet` 都能照常工作。
 
-- `<if>` 变成了 `if`，`<choose>` 变成了 `if/else`，`<bind>` 变成了一个局部变量，
-  `<foreach>` 变成了 `for range`。**`foreach` 的 collection 可以直接调用包内的 Go 函数**
-  （这里是 `filterPositiveUserIDs`），这些都是普通 Go 代码，编辑器跳转、重构和
-  `go vet` 都能正常工作。
-- `<where>` 变成了一个子 builder 加上 `AppendTrimmed`：子片段先独立构建，再由运行时
-  去掉开头多余的 `AND`/`OR` 并补上 `WHERE `。
-- **占位符在 `Build()` 时才编号。** Builder 内部只存储"文本"和"参数"两种 token。如果
-  每个子 builder 立即生成 `$1`，嵌套的 `where`/`foreach` 就会各自从 `$1` 开始编号。延迟
-  到最后统一渲染，PostgreSQL 的 `$n` 就能正确连续，SQLite 和 MySQL 则统一使用 `?`。
+生成器给内部变量按顺序编号命名（`trim1`、`foreach2`、`itemSQL3`），并避开方法参数以及
+`<bind>`、`<foreach>` 声明的名字，防止与用户写的名字冲突。最终源码经过 `go/format` 格式化，同样的输入总是产出逐字节相同的输出，生成文件
+可以放心提交到版本库并参与代码审查。
 
-用两组参数调用这个函数，得到的正是文章开头那两条 SQL（空白已整理）：
+### 回填：延迟编号的占位符
+
+上面的代码里有一个细节：`Arg` 并没有立刻写出 `$1`。
+
+问题出在嵌套上。`<where>` 和 `<foreach>` 的内容是在各自的子 builder 中构建的，构建完才拼回父
+builder。如果每个 builder 在调用 `Arg` 时就生成占位符，`foreach2` 里的第一个参数会被编成 `$1`，
+和外层的 `$1` 冲突。何况 `<where>` 是否保留某个片段、`<foreach>` 循环几次，都要到运行时才知道。
+
+汇编器处理向前跳转时会遇到同样的问题：写下跳转指令时，目标地址还不知道。常见的做法是**回填**
+（backpatching）：先留一个空位，等地址确定后再填回去。yourbatis 的 Builder 采用了同样的思路。
+它内部只存储两种 token，"文本"和"参数"，子 builder 拼接时 token 原样合并。直到最外层调用
+`Build()`，才从头遍历一次，按出现顺序统一编号：PostgreSQL 输出 `$1`、`$2`……，SQLite 和 MySQL
+输出 `?`。
+
+用两组参数调用上面的函数，得到的正是文章开头那两条 SQL（空白已整理）：
 
 ```sql
 -- Keyword="a%", Status=active, IDs=[3, -1, 7], Limit=20
@@ -458,44 +630,43 @@ WHERE status != 'deleted'
 ORDER BY created_at DESC LIMIT $1 OFFSET $2
 ```
 
-`-1` 已被 `filterPositiveUserIDs` 过滤掉，第一个条件前的 `AND` 被移除，编号保持连续。
-最终，整个生成文件会经过 `go/format` 格式化。同样的输入总是产出同样的输出，生成文件
-可以放心提交到版本库并参与代码审查。
+`-1` 被 `filterPositiveUserIDs` 过滤掉，第一个条件前的 `AND` 被移除，占位符编号保持连续。
 
-### 第七步：方言能力检查
+### 目标检查：方言就像 `GOOS`/`GOARCH`
 
-PostgreSQL、SQLite 和 MySQL 获取"刚写入的数据"的方式并不相同：
+编译器需要知道目标平台：同一段 Go 代码，在 `GOARCH=arm64` 和 `GOARCH=amd64` 下会生成不同的
+指令，某些特性也只在部分平台上可用。对 yourbatis 来说，数据库方言就是目标平台：
 
-| | `RETURNING` | `LastInsertId` |
-| --- | --- | --- |
-| PostgreSQL | 支持 | 不支持 |
-| SQLite | 支持 | 支持 |
-| MySQL | 不支持 | 支持 |
+| | `RETURNING` | `LastInsertId` | 占位符 |
+| --- | --- | --- | --- |
+| PostgreSQL | 支持 | 不支持 | `$n` |
+| SQLite | 支持 | 支持 | `?` |
+| MySQL | 不支持 | 支持 | `?` |
 
-MyBatis 用 `selectKey` 和 `keyProperty` 抹平这些差异：可能在 INSERT 前后执行一条额外
-查询，再用反射把主键写回参数对象。yourbatis 有意不这样做。DML 必须显式声明
-`result="returning"`、`"lastid"`、`"rows"` 或 `"exec"`，框架不会在这几种模式之间自动
-降级。
+MyBatis 用 `selectKey` 和 `keyProperty` 抹平这些差异：可能在 INSERT 前后执行一条额外的查询，
+再用反射把主键写回参数对象。yourbatis 有意不这样做。DML 必须显式声明 `result="returning"`、
+`"lastid"`、`"rows"` 或 `"exec"`，框架不会在这几种模式之间自动降级。
 
-能力检查分两个层次：
+能力检查分两个时机，类似于编译器的两种做法：
 
-- **生成期**：传入 `-dialect` 时，不兼容的结果模式会直接导致生成失败。
+- **生成期检查**，相当于交叉编译时指定目标平台。传入 `-dialect` 后，不兼容的结果模式会让生成
+  直接失败：
 
   ```text
   ./user_mapper.xml:109:41: UserMapper.Create uses result=lastid, but target dialect postgres does not support LastInsertId; use result=returning
   ```
 
-- **运行期**：未传 `-dialect` 时，生成代码会在**执行语句之前**检查当前 executor 的方言。
-  `ExecuteLastInsertID` 先检查 `Supports(FeatureLastInsertID)`，通过后才调用
-  `ExecContext`。
+- **运行期检查**，相当于运行时检测 CPU 特性后再选择代码路径。不传 `-dialect` 时，生成代码会在
+  **执行语句之前**检查当前 executor 的方言：`ExecuteLastInsertID` 先确认
+  `Supports(FeatureLastInsertID)`，再调用 `ExecContext`。
 
-检查必须放在执行之前，这一点很关键。如果先执行 INSERT，再在 `LastInsertId()` 处报错，
-调用方收到的是一个错误，但数据已经写进了数据库。对有副作用的语句来说，"报错"和
-"什么都没发生"必须是同一回事。
+检查必须放在执行之前，这一点很关键。如果先执行 INSERT，再在 `LastInsertId()` 处报错，调用方
+收到的是一个错误，但数据已经写进了数据库。对有副作用的语句来说，"返回错误"必须意味着"什么都
+没有发生"。
 
 ### 运行时：很薄的一层
 
-生成代码只依赖一个三方法的 interface：
+生成代码只依赖一个包含三个方法的 interface：
 
 ```go
 type Executor interface {
@@ -505,12 +676,12 @@ type Executor interface {
 }
 ```
 
-`*yourbatis.DB` 和 `*yourbatis.Tx` 都实现了它。运行时库其余部分是一组泛型辅助函数，
-如 `SelectOne`、`SelectOptional`、`SelectMany`、`SelectEach`、`ExecuteRows`、
-`ExecuteLastInsertID`，负责调用 `database/sql`、执行生成好的 scanner、处理行数语义。
-单行查询会尝试读取第二行，以返回 `ErrTooManyRows`，而不是静默丢弃多余的行。
+`*yourbatis.DB` 和 `*yourbatis.Tx` 都实现了它。运行时库的其余部分，是一组泛型辅助函数：
+`SelectOne`、`SelectOptional`、`SelectMany`、`SelectEach`、`ExecuteRows`、`ExecuteLastInsertID`。
+它们负责调用 `database/sql`、执行生成好的 scanner、落实行数语义。单行查询会多读一次，确认没有
+第二行，有就返回 `ErrTooManyRows`，而不是静默丢弃多余的行。
 
-事务没有任何隐式行为。Mapper 绑定在哪个 executor 上，它就在哪个连接上执行：
+事务没有隐式行为。Mapper 绑定在哪个 executor 上，就在哪个连接上执行：
 
 ```go
 err := db.Transaction(ctx, func(tx yourbatis.Executor) error {
@@ -523,29 +694,32 @@ err := db.Transaction(ctx, func(tx yourbatis.Executor) error {
 })
 ```
 
-我们没有通过 `context.Context` 传递事务。读代码的人只要看 Mapper 是用 `db` 还是 `tx`
-构造的，就知道这次调用属于哪个事务。
+我们没有通过 `context.Context` 传递事务。读代码的人只要看 Mapper 是用 `db` 还是 `tx` 构造的，
+就知道这次调用属于哪个事务。
 
-错误会被包装成 `*yourbatis.StatementError`，携带 statement ID 和 XML 来源位置，同时
-保留 `errors.Is(err, sql.ErrNoRows)` 这样的标准判断。日志接口能拿到最终 SQL、参数和
-耗时；标记为 `#{email,sensitive=true}` 的参数在调试输出中显示为 `<redacted>`。
+错误会被包装成 `*yourbatis.StatementError`，携带 statement ID 和 XML 来源位置，同时不影响
+`errors.Is(err, sql.ErrNoRows)` 这样的标准判断。日志接口能拿到最终 SQL、参数和耗时；标记为
+`#{email,sensitive=true}` 的参数，在调试输出中显示为 `<redacted>`。
 
-### 生成期能发现的错误
+### 每个阶段能发现的错误
 
-把前面的例子汇总一下。下面的错误在 yourbatis 中都发生在 `go generate` 阶段，而在
-运行时解析 XML 的方案中，它们通常要到对应代码路径真正执行时才会暴露：
+把本节引用过的错误按编译阶段汇总如下。除最后一行外，其余错误都发生在 `go generate` 时；
+在运行时解释 XML 的方案里，它们通常要到对应代码路径真正执行时才会暴露。
 
-| 错误 | 生成期信息（节选） |
-| --- | --- |
-| 表达式引用了不存在的字段 | `type SearchUserParams has no exported field "Keywrd"` |
-| 对非指针类型判断 nil | `type string cannot be compared with nil` |
-| `${}` 传入普通字符串 | `plain string interpolation is disabled` |
-| `SELECT *` | `SELECT * cannot be statically mapped` |
-| 列无法映射到字段 | `column "user_ident" cannot be mapped to UserLabel` |
-| 动态节点改变投影 | `dynamic <if> cannot change the SELECT projection` |
-| 签名与结果模式不符 | `optional select methods must return (T, bool, error)` |
-| 方言不支持的结果模式 | `target dialect postgres does not support LastInsertId` |
-| 未知 XML 属性 | `<select> does not support attribute "useCache"` |
+| 阶段 | 错误 | 信息（节选） |
+| --- | --- | --- |
+| 前端 | 未知 XML 属性 | `<select> does not support attribute "useCache"` |
+| 语义分析 | 名字不在作用域内 | `unknown identifier "userID"` |
+| 语义分析 | 同一作用域内重复声明 | `bind name "keyword" is already declared in this scope` |
+| 语义分析 | 字段不存在 | `type SearchUserParams has no exported field "Keywrd"` |
+| 语义分析 | 对非指针类型判断 nil | `type string cannot be compared with nil` |
+| 语义分析 | `${}` 传入普通字符串 | `plain string interpolation is disabled` |
+| 语义分析 | 签名与结果模式不符 | `optional select methods must return (T, bool, error)` |
+| 静态分析 | `SELECT *` | `SELECT * cannot be statically mapped` |
+| 静态分析 | 列无法映射到字段 | `column "user_ident" cannot be mapped to UserLabel` |
+| 静态分析 | 动态节点改变投影 | `dynamic <if> cannot change the SELECT projection` |
+| 目标检查 | 方言不支持的结果模式 | `target dialect postgres does not support LastInsertId` |
+| Go 编译器 | 生成器未覆盖的类型错误 | `mismatched types int and untyped string` |
 
 ## 我们如何验证它
 
