@@ -1,0 +1,79 @@
+[
+  {
+    "slug": "02-infographic-yourbatis-intro",
+    "source": "docs/blog/imgs/02-infographic-yourbatis-intro-v2.png",
+    "prompt": "docs/blog/imgs/en/prompts/02-infographic-yourbatis-intro.md",
+    "output": "docs/blog/imgs/en/02-infographic-yourbatis-intro.png",
+    "title": "Dynamic SQL, compiled to Go"
+  },
+  {
+    "slug": "09-comparison-generation-runtime",
+    "source": "docs/blog/imgs/09-comparison-generation-runtime.png",
+    "prompt": "docs/blog/imgs/en/prompts/09-comparison-generation-runtime.md",
+    "output": "docs/blog/imgs/en/09-comparison-generation-runtime.png",
+    "title": "Generation time and runtime"
+  },
+  {
+    "slug": "01-flowchart-yourbatis-pipeline",
+    "source": "docs/blog/imgs/01-flowchart-yourbatis-pipeline.png",
+    "prompt": "docs/blog/imgs/en/prompts/01-flowchart-yourbatis-pipeline.md",
+    "output": "docs/blog/imgs/en/01-flowchart-yourbatis-pipeline.png",
+    "title": "The yourbatis compilation pipeline"
+  },
+  {
+    "slug": "12-flowchart-xml-dom",
+    "source": "docs/blog/imgs/12-flowchart-xml-dom.png",
+    "prompt": "docs/blog/imgs/en/prompts/12-flowchart-xml-dom.md",
+    "output": "docs/blog/imgs/en/12-flowchart-xml-dom.png",
+    "title": "Parsing XML into a DOM"
+  },
+  {
+    "slug": "13-flowchart-sql-tokenization",
+    "source": "docs/blog/imgs/13-flowchart-sql-tokenization.png",
+    "prompt": "docs/blog/imgs/en/prompts/13-flowchart-sql-tokenization.md",
+    "output": "docs/blog/imgs/en/13-flowchart-sql-tokenization.png",
+    "title": "Tokenizing SQL text"
+  },
+  {
+    "slug": "03-comparison-xml-to-ir",
+    "source": "docs/blog/imgs/03-comparison-xml-to-ir.png",
+    "prompt": "docs/blog/imgs/en/prompts/03-comparison-xml-to-ir.md",
+    "output": "docs/blog/imgs/en/03-comparison-xml-to-ir.png",
+    "title": "From XML constructs to IR nodes"
+  },
+  {
+    "slug": "07-framework-variable-scope",
+    "source": "docs/blog/imgs/07-framework-variable-scope.png",
+    "prompt": "docs/blog/imgs/en/prompts/07-framework-variable-scope.md",
+    "output": "docs/blog/imgs/en/07-framework-variable-scope.png",
+    "title": "Lexical scope"
+  },
+  {
+    "slug": "10-comparison-binding-interpolation",
+    "source": "docs/blog/imgs/10-comparison-binding-interpolation.png",
+    "prompt": "docs/blog/imgs/en/prompts/10-comparison-binding-interpolation.md",
+    "output": "docs/blog/imgs/en/10-comparison-binding-interpolation.png",
+    "title": "Parameter binding and text interpolation"
+  },
+  {
+    "slug": "06-flowchart-projection-scanner",
+    "source": "docs/blog/imgs/06-flowchart-projection-scanner.png",
+    "prompt": "docs/blog/imgs/en/prompts/06-flowchart-projection-scanner.md",
+    "output": "docs/blog/imgs/en/06-flowchart-projection-scanner.png",
+    "title": "Mapping result columns to Go fields"
+  },
+  {
+    "slug": "04-comparison-ir-to-go",
+    "source": "docs/blog/imgs/04-comparison-ir-to-go.png",
+    "prompt": "docs/blog/imgs/en/prompts/04-comparison-ir-to-go.md",
+    "output": "docs/blog/imgs/en/04-comparison-ir-to-go.png",
+    "title": "Generating Go from an IR tree"
+  },
+  {
+    "slug": "cover",
+    "source": "docs/blog/imgs/cover.png",
+    "prompt": "docs/blog/imgs/en/prompts/01-cover-yourbatis-en.md",
+    "output": "docs/blog/imgs/en/cover.png",
+    "title": "Dynamic SQL in Go, with compile-time guarantees"
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "article": "introducing-yourbatis.en.md",
+  "source": "introducing-yourbatis.md",
+  "source_sha256": "24a05fa0084c5b01f4fb0406b1ae5d22f22550f24f84c3a2be4d4299f80a8b84",
+  "localized_illustrations": 10,
+  "reused_english_screenshots": 1,
+  "english_covers": 1,
+  "code_blocks_preserved": 21,
+  "image_alt_text": "empty",
+  "image_backend": "built-in imagegen",
+  "visual_review": "All 10 localized illustrations and the cover reviewed for English labels, code identifiers, and diagram relationships.",
+  "checks": [
+    "All 11 article image references resolve locally",
+    "Chinese source unchanged",
+    "Code and diagnostics preserved; Chinese code comments translated",
+    "No Chinese characters in the English article or prompts",
+    "No Markdown tables",
+    "Code fences balanced"
+  ],
+  "cover_dimensions": [
+    1880,
+    800
+  ]
+}
